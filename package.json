@@ -1,9 +1,20 @@
 {
+  "name": "forex_signals",
+  "version": "1.0.0",
+  "description": "Forex trading signals bot using Telegram API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "axios": "^1.7.7",
     "chartjs-node-canvas": "^4.1.6",
     "dotenv": "^16.4.5",
     "node-telegram-bot-api": "^0.66.0",
     "technicalindicators": "^3.1.0"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
   }
 }
