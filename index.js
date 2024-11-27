@@ -119,9 +119,9 @@ function interpretMovingAverages(prices, shortPeriod = 20, longPeriod = 50) {
 
 // Function to monitor the active signal and check if SL or TP is hit
 async function generateSignal(pair) {
-    const prices = await fetchForexCryptoData(pair, '30min');
+    const prices = await fetchForexCryptoData(pair, '5min');
 
-    if (!prices || prices.length < 30) return; // Fetch latest 30min prices to monitor signal
+    if (!prices || prices.length < 5) return; // Fetch latest 5min prices to monitor signal
 
     if (prices.length < 1) return;
 
@@ -157,23 +157,23 @@ function sendOutcomeMessage(outcome, signal) {
 // Function to generate signal and track success
 async function generateComprehensiveSignal(pair) {
     console.log(`Generating signal for ${pair}`);
-    const timeframes = ['30min', '60min', '240min', 'daily'];
+    const timeframes = ['5min', '15min', '30min', '60min'];
 
     try {
-        const [prices30m, prices1h, prices4h, pricesDaily] = await Promise.all(
+        const [prices5m, prices15m, prices30m, prices1h] = await Promise.all(
             timeframes.map((interval) => fetchForexCryptoData(pair, interval))
         );
 
-        if (!prices30m || !prices1h || !prices4h || !pricesDaily ||
-            prices30m.length < 15 || prices1h.length < 15 || prices4h.length < 15 || pricesDaily.length < 15) {
+        if (!prices5m || !prices15m || !prices30m || !prices1h ||
+            prices5m.length < 15 || prices15m.length < 15 || prices30m.length < 15 || prices1h.length < 15) {
             console.log(`Not enough data for ${pair} on one or more timeframes.`);
             return;
         }
 
-        const rsiSignal = interpretRSI(prices30m);
-        const bbSignal = interpretBollingerBands(prices30m);
-        const maSignal = interpretMovingAverages(prices30m);
-        const chartPattern = identifyChartPattern(prices30m);
+        const rsiSignal = interpretRSI(prices5m);
+        const bbSignal = interpretBollingerBands(prices5m);
+        const maSignal = interpretMovingAverages(prices5m);
+        const chartPattern = identifyChartPattern(prices5m);
 
         let finalSignal = 'HOLD';
         if (rsiSignal === 'Bullish' && bbSignal === 'Bullish' && maSignal === 'Bullish') {
@@ -183,7 +183,7 @@ async function generateComprehensiveSignal(pair) {
         }
 
         if (!activeSignals[pair]) {
-            const currentPrice = prices30m[0].close;
+            const currentPrice = prices5m[0].close;
             const stopLoss = currentPrice - 10;
             const takeProfit = currentPrice + 20;
 
@@ -210,7 +210,7 @@ async function generateComprehensiveSignal(pair) {
 }
 
 async function monitorSignal(signal) {
-    const prices = await fetchForexCryptoData(signal.pair, '30min');
+    const prices = await fetchForexCryptoData(signal.pair, '5min');
     if (!prices || prices.length < 1) return;
 
     const currentPrice = prices[0].close;
@@ -259,7 +259,7 @@ async function generateSignalsForAllPairs() {
 
 setInterval(() => {
     generateSignalsForAllPairs();
-}, 30 * 60 * 1000);
+}, 5 * 60 * 1000);
 
 setInterval(() => {
     monitorActiveSignals();
