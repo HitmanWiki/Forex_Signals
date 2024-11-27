@@ -1,1 +1,1 @@
-worker: node TA-bot.js
+worker: node index.js
