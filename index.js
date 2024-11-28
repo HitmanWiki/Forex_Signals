@@ -3,7 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const technicalindicators = require('technicalindicators');
 require('dotenv').config();
 
-const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+const apiKey = process.env.TWELVE_DATA_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
@@ -20,7 +20,8 @@ async function fetchForexCryptoData(pair, interval) {
             throw new Error(`Invalid pair: ${pair}`);
         }
 
-        const url = `https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol=${pair.split('/')[0]}&to_symbol=${pair.split('/')[1]}&interval=${interval}&apikey=${apiKey}`;
+        const url = `https://api.twelvedata.com/time_series?symbol=${pair}&interval=5min&apikey=${apiKey}`;
+
         const response = await axios.get(url);
 
         if (response.data && response.data[`Time Series FX (${interval})`]) {
