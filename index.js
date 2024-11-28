@@ -14,15 +14,18 @@ let signalCounter = 1; // Simple counter for tagging signals
 const pairs = ['EUR/USD', 'BTC/USD']; // Trading pairs
 const bot = new TelegramBot(botToken, { polling: true });
 
-// Fetch 5-minute data from Twelve Data
+// Fetch data from Twelve Data
 async function fetchForexCryptoData(pair, interval = '5min') {
     try {
-        const url = `https://api.twelvedata.com/time_series?symbol=BTC/USD&interval=${interval}&apikey=${apiKey}`;
+        const encodedPair = encodeURIComponent(pair);
+        const url = `https://api.twelvedata.com/time_series?symbol=${encodedPair}&interval=${interval}&apikey=${apiKey}`;
+        console.log(`Fetching data from URL: ${url}`);
+
         const response = await axios.get(url);
 
         if (response.data && response.data.values) {
             const prices = response.data.values.map((candle) => ({
-                time: new Date(candle.datetime), // Timestamp
+                time: new Date(candle.datetime),
                 high: parseFloat(candle.high),
                 low: parseFloat(candle.low),
                 close: parseFloat(candle.close),
@@ -34,52 +37,52 @@ async function fetchForexCryptoData(pair, interval = '5min') {
             return [];
         }
     } catch (error) {
-        console.error(`Error fetching data for ${pair}:`, error.message);
+        console.error(`Error fetching data for ${pair}: ${error.message}`);
         return [];
     }
 }
 
-// Function to calculate RSI
+// RSI Calculation
 function interpretRSI(prices, period = 14) {
     const closes = prices.map((p) => p.close);
     const rsi = technicalindicators.RSI.calculate({ values: closes, period });
     const latestRSI = rsi[rsi.length - 1];
 
-    if (!latestRSI) return 'Neutral'; // Handle cases where RSI cannot be calculated
+    if (!latestRSI) return 'Neutral';
     if (latestRSI < 30) return 'Bullish';
     if (latestRSI > 70) return 'Bearish';
     return 'Neutral';
 }
 
-// Function to calculate Bollinger Bands
-function interpretBollingerBands(prices, period = 20, nbdevup = 2, nbdevdn = 2) {
+// Bollinger Bands Calculation
+function interpretBollingerBands(prices, period = 20, stdDev = 2) {
     const closes = prices.map((p) => p.close);
     const { upper, lower } = technicalindicators.BollingerBands.calculate({
         period,
         values: closes,
-        stdDev: nbdevup,
+        stdDev,
     });
     const latestClose = closes[closes.length - 1];
 
-    if (!upper || !lower) return 'Neutral'; // Handle cases where bands cannot be calculated
+    if (!upper || !lower) return 'Neutral';
     if (latestClose < lower[lower.length - 1]) return 'Bullish';
     if (latestClose > upper[upper.length - 1]) return 'Bearish';
     return 'Neutral';
 }
 
-// Function to calculate moving averages
+// Moving Averages Calculation
 function interpretMovingAverages(prices, shortPeriod = 20, longPeriod = 50) {
     const closes = prices.map((p) => p.close);
     const shortMA = technicalindicators.SMA.calculate({ values: closes, period: shortPeriod });
     const longMA = technicalindicators.SMA.calculate({ values: closes, period: longPeriod });
 
-    if (!shortMA.length || !longMA.length) return 'Neutral'; // Handle insufficient data
-    if (shortMA[shortMA.length - 1] > longMA[longMA.length - 1]) return 'Bullish'; // Golden Cross
-    if (shortMA[shortMA.length - 1] < longMA[longMA.length - 1]) return 'Bearish'; // Death Cross
+    if (!shortMA.length || !longMA.length) return 'Neutral';
+    if (shortMA[shortMA.length - 1] > longMA[longMA.length - 1]) return 'Bullish';
+    if (shortMA[shortMA.length - 1] < longMA[longMA.length - 1]) return 'Bearish';
     return 'Neutral';
 }
 
-// Function to calculate ATR (Average True Range) for dynamic SL and TP
+// ATR Calculation
 function calculateATR(prices, period = 14) {
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
@@ -92,28 +95,27 @@ function calculateATR(prices, period = 14) {
         period,
     });
 
-    return atr[atr.length - 1]; // Return the most recent ATR value
+    return atr[atr.length - 1];
 }
+
+// Support and Resistance Calculation
 function calculateSupportResistance(prices) {
     if (prices.length < 2) {
         console.error('Not enough data to calculate support and resistance');
         return { support: null, resistance: null };
     }
 
-    const lastCandle = prices[0]; // Most recent price data
-    const prevCandle = prices[1]; // Previous price data
-
-    // Pivot Point Formula
+    const lastCandle = prices[0];
+    const prevCandle = prices[1];
     const pivot = (prevCandle.high + prevCandle.low + prevCandle.close) / 3;
 
-    // Support and Resistance Formulas
     const resistance = pivot + (prevCandle.high - prevCandle.low);
     const support = pivot - (prevCandle.high - prevCandle.low);
 
     return { support, resistance };
 }
 
-
+// Generate Trading Signal
 async function generateComprehensiveSignal(pair) {
     console.log(`Generating signal for ${pair}`);
     try {
@@ -124,23 +126,15 @@ async function generateComprehensiveSignal(pair) {
             return;
         }
 
-        // Calculate indicators
         const rsiSignal = interpretRSI(prices);
         const bbSignal = interpretBollingerBands(prices);
         const maSignal = interpretMovingAverages(prices);
-
-        // Calculate ATR for dynamic SL and TP
         const atr = calculateATR(prices);
-        console.log(`ATR for ${pair}: ${atr}`);
-
-        // Calculate Support and Resistance
         const { support, resistance } = calculateSupportResistance(prices);
-        console.log(`Support: ${support}, Resistance: ${resistance}`);
 
         let finalSignal = 'HOLD';
-
-        // Signal Decision with Support and Resistance
         const currentPrice = prices[0].close;
+
         if (
             currentPrice > resistance &&
             rsiSignal === 'Bullish' &&
@@ -158,17 +152,15 @@ async function generateComprehensiveSignal(pair) {
         }
 
         if (!activeSignals[pair] && finalSignal !== 'HOLD') {
-            const multiplier = 1.5; // ATR multiplier for SL/TP calculation
+            const multiplier = 1.5;
             const stopLoss = finalSignal === 'BUY'
                 ? currentPrice - atr * multiplier
                 : currentPrice + atr * multiplier;
-
             const takeProfit = finalSignal === 'BUY'
                 ? currentPrice + atr * multiplier
                 : currentPrice - atr * multiplier;
 
             const signalTag = `Signal-${signalCounter++}`;
-
             const message = `📊 **Trading Signal for ${pair}** (Tag: ${signalTag}) 📊\n
             Signal: ${finalSignal}\n
             RSI: ${rsiSignal}\n
@@ -184,23 +176,14 @@ async function generateComprehensiveSignal(pair) {
                 .then(() => console.log('Signal sent to Telegram channel'))
                 .catch((err) => console.error('Error sending message to Telegram:', err));
 
-            activeSignals[pair] = {
-                type: finalSignal,
-                stopLoss,
-                takeProfit,
-                atr,
-                support,
-                resistance,
-                tag: signalTag,
-                pair,
-            };
+            activeSignals[pair] = { type: finalSignal, stopLoss, takeProfit, tag: signalTag };
         }
     } catch (error) {
-        console.error(`Error generating signal for ${pair}:`, error.message);
+        console.error(`Error generating signal for ${pair}: ${error.message}`);
     }
 }
 
-// Monitor active signals with dynamic SL/TP
+// Monitor Active Signals
 async function monitorActiveSignals() {
     for (const pair in activeSignals) {
         const signal = activeSignals[pair];
@@ -223,25 +206,24 @@ async function monitorActiveSignals() {
     }
 }
 
-// Send signal outcomes
+// Send Signal Outcomes
 function sendOutcomeMessage(outcome, signal) {
     const successRate = ((signalHistory.successes / signalHistory.total) * 100).toFixed(2);
     const message = `📊 **Signal Outcome** (Tag: ${signal.tag}) 📊\n
     Signal: ${signal.type}\n
     Outcome: ${outcome}\n
     Success Rate: ${successRate}%\n
-    ATR: ${signal.atr.toFixed(2)}\n
     Stop Loss: $${signal.stopLoss.toFixed(2)}\n
     Take Profit: $${signal.takeProfit.toFixed(2)}\n`;
 
     bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
 }
 
-// Run signals for all pairs
+// Run Signals for All Pairs
 async function generateSignalsForAllPairs() {
     for (const pair of pairs) {
         await generateComprehensiveSignal(pair);
-        await sleep(15000); // Delay to prevent rate limit issues
+        await sleep(15000); // Avoid rate limit issues
     }
 }
 
@@ -249,7 +231,7 @@ setInterval(() => generateSignalsForAllPairs(), 5 * 60 * 1000); // Every 5 minut
 setInterval(() => monitorActiveSignals(), 1 * 60 * 1000); // Every minute
 
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, 'This bot generates trading signals using RSI, Bollinger Bands, and Moving Averages.');
+    bot.sendMessage(msg.chat.id, 'This bot generates trading signals using RSI, Bollinger Bands, Moving Averages, ATR, and Support/Resistance.');
 });
 
 function sleep(ms) {
