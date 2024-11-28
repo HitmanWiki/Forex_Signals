@@ -11,13 +11,13 @@ let activeSignals = {}; // Track active signals for all pairs
 let signalHistory = { successes: 0, failures: 0, total: 0 };
 let signalCounter = 1; // Simple counter for tagging signals
 
-const pairs = ['XAU/USD', 'EUR/USD', 'BTC/USD']; // Trading pairs
+const pairs = ['EUR/USD', 'BTC/USD']; // Trading pairs
 const bot = new TelegramBot(botToken, { polling: true });
 
 // Fetch 5-minute data from Twelve Data
 async function fetchForexCryptoData(pair, interval = '5min') {
     try {
-        const url = `https://api.twelvedata.com/time_series?symbol=${pair}&interval=${interval}&apikey=${apiKey}`;
+        const url = `https://api.twelvedata.com/time_series?symbol=BTC/USD&interval=${interval}&apikey=${apiKey}`;
         const response = await axios.get(url);
 
         if (response.data && response.data.values) {
