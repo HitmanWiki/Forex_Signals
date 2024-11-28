@@ -79,7 +79,41 @@ function interpretMovingAverages(prices, shortPeriod = 20, longPeriod = 50) {
     return 'Neutral';
 }
 
-// Generate trading signals
+// Function to calculate ATR (Average True Range) for dynamic SL and TP
+function calculateATR(prices, period = 14) {
+    const highs = prices.map((p) => p.high);
+    const lows = prices.map((p) => p.low);
+    const closes = prices.map((p) => p.close);
+
+    const atr = technicalindicators.ATR.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period,
+    });
+
+    return atr[atr.length - 1]; // Return the most recent ATR value
+}
+function calculateSupportResistance(prices) {
+    if (prices.length < 2) {
+        console.error('Not enough data to calculate support and resistance');
+        return { support: null, resistance: null };
+    }
+
+    const lastCandle = prices[0]; // Most recent price data
+    const prevCandle = prices[1]; // Previous price data
+
+    // Pivot Point Formula
+    const pivot = (prevCandle.high + prevCandle.low + prevCandle.close) / 3;
+
+    // Support and Resistance Formulas
+    const resistance = pivot + (prevCandle.high - prevCandle.low);
+    const support = pivot - (prevCandle.high - prevCandle.low);
+
+    return { support, resistance };
+}
+
+
 async function generateComprehensiveSignal(pair) {
     console.log(`Generating signal for ${pair}`);
     try {
@@ -95,20 +129,44 @@ async function generateComprehensiveSignal(pair) {
         const bbSignal = interpretBollingerBands(prices);
         const maSignal = interpretMovingAverages(prices);
 
-        console.log(`RSI: ${rsiSignal}, BB: ${bbSignal}, MA: ${maSignal}`);
+        // Calculate ATR for dynamic SL and TP
+        const atr = calculateATR(prices);
+        console.log(`ATR for ${pair}: ${atr}`);
 
-        // Combine signals
+        // Calculate Support and Resistance
+        const { support, resistance } = calculateSupportResistance(prices);
+        console.log(`Support: ${support}, Resistance: ${resistance}`);
+
         let finalSignal = 'HOLD';
-        if (rsiSignal === 'Bullish' && bbSignal === 'Bullish' && maSignal === 'Bullish') {
+
+        // Signal Decision with Support and Resistance
+        const currentPrice = prices[0].close;
+        if (
+            currentPrice > resistance &&
+            rsiSignal === 'Bullish' &&
+            bbSignal === 'Bullish' &&
+            maSignal === 'Bullish'
+        ) {
             finalSignal = 'BUY';
-        } else if (rsiSignal === 'Bearish' && bbSignal === 'Bearish' && maSignal === 'Bearish') {
+        } else if (
+            currentPrice < support &&
+            rsiSignal === 'Bearish' &&
+            bbSignal === 'Bearish' &&
+            maSignal === 'Bearish'
+        ) {
             finalSignal = 'SELL';
         }
 
-        if (!activeSignals[pair]) {
-            const currentPrice = prices[0].close;
-            const stopLoss = currentPrice - 10; // Example: 10 points stop loss
-            const takeProfit = currentPrice + 20; // Example: 20 points take profit
+        if (!activeSignals[pair] && finalSignal !== 'HOLD') {
+            const multiplier = 1.5; // ATR multiplier for SL/TP calculation
+            const stopLoss = finalSignal === 'BUY'
+                ? currentPrice - atr * multiplier
+                : currentPrice + atr * multiplier;
+
+            const takeProfit = finalSignal === 'BUY'
+                ? currentPrice + atr * multiplier
+                : currentPrice - atr * multiplier;
+
             const signalTag = `Signal-${signalCounter++}`;
 
             const message = `📊 **Trading Signal for ${pair}** (Tag: ${signalTag}) 📊\n
@@ -116,23 +174,40 @@ async function generateComprehensiveSignal(pair) {
             RSI: ${rsiSignal}\n
             Bollinger Bands: ${bbSignal}\n
             Moving Averages: ${maSignal}\n
+            ATR: ${atr.toFixed(2)}\n
+            Support: $${support.toFixed(2)}\n
+            Resistance: $${resistance.toFixed(2)}\n
             Stop Loss: $${stopLoss.toFixed(2)}\n
             Take Profit: $${takeProfit.toFixed(2)}\n`;
 
-            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
-            activeSignals[pair] = { type: finalSignal, stopLoss, takeProfit, tag: signalTag };
+            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' })
+                .then(() => console.log('Signal sent to Telegram channel'))
+                .catch((err) => console.error('Error sending message to Telegram:', err));
+
+            activeSignals[pair] = {
+                type: finalSignal,
+                stopLoss,
+                takeProfit,
+                atr,
+                support,
+                resistance,
+                tag: signalTag,
+                pair,
+            };
         }
     } catch (error) {
         console.error(`Error generating signal for ${pair}:`, error.message);
     }
 }
 
-// Monitor signals periodically
+// Monitor active signals with dynamic SL/TP
 async function monitorActiveSignals() {
     for (const pair in activeSignals) {
         const signal = activeSignals[pair];
         const prices = await fetchForexCryptoData(pair);
         const currentPrice = prices[0]?.close;
+
+        if (!currentPrice) continue;
 
         if (currentPrice <= signal.stopLoss) {
             signalHistory.failures++;
@@ -155,6 +230,7 @@ function sendOutcomeMessage(outcome, signal) {
     Signal: ${signal.type}\n
     Outcome: ${outcome}\n
     Success Rate: ${successRate}%\n
+    ATR: ${signal.atr.toFixed(2)}\n
     Stop Loss: $${signal.stopLoss.toFixed(2)}\n
     Take Profit: $${signal.takeProfit.toFixed(2)}\n`;
 
