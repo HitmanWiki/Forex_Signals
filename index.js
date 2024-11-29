@@ -17,7 +17,7 @@ const pairs = ['EUR/USD', 'BTC/USD']; // Trading pairs
 const bot = new TelegramBot(botToken, { polling: true });
 
 // Fetch data from Twelve Data
-async function fetchForexCryptoData(pair, interval = '5min') {
+async function fetchForexCryptoData(pair, interval = '1min') {
     try {
         const encodedPair = encodeURIComponent(pair);
         const url = `https://api.twelvedata.com/time_series?symbol=${encodedPair}&interval=${interval}&apikey=${apiKey}`;
@@ -121,63 +121,59 @@ function calculateSupportResistance(prices) {
 async function generateComprehensiveSignal(pair) {
     console.log(`Generating signal for ${pair}`);
     try {
-        const prices = await fetchForexCryptoData(pair);
+        // Fetch data for short and higher timeframes
+        const [shortPrices, longPrices] = await Promise.all([
+            fetchForexCryptoData(pair, '1min'), // Short timeframe
+            fetchForexCryptoData(pair, '15min') // Higher timeframe for trend
+        ]);
 
-        if (!prices || prices.length < 15) {
+        if (!shortPrices || shortPrices.length < 20 || !longPrices || longPrices.length < 20) {
             console.log(`Not enough data for ${pair}.`);
             return;
         }
 
-        // Calculate indicators
-        const rsiSignal = interpretRSI(prices);
-        const bbSignal = interpretBollingerBands(prices);
-        const maSignal = interpretMovingAverages(prices);
-        const atr = calculateATR(prices);
-        const { support, resistance } = calculateSupportResistance(prices);
+        // Analyze short timeframe
+        const rsiSignal = interpretRSI(shortPrices, 5); // Faster RSI for 1min
+        const bbSignal = interpretBollingerBands(shortPrices, 10, 1.5); // Tighter Bollinger Bands
+        const maSignal = interpretMovingAverages(shortPrices, 5, 15); // Shorter MA periods
+        const atr = calculateATR(shortPrices);
 
-        // Log indicator results
+        // Analyze higher timeframe
+        const longTermTrend = interpretMovingAverages(longPrices, 20, 50); // Trend confirmation
+
+        // Support and resistance (short timeframe)
+        const { support, resistance } = calculateSupportResistance(shortPrices);
+
         console.log(`RSI for ${pair}: ${rsiSignal}`);
         console.log(`Bollinger Bands for ${pair}: ${bbSignal}`);
         console.log(`Moving Averages for ${pair}: ${maSignal}`);
         console.log(`ATR for ${pair}: ${atr}`);
         console.log(`Support: ${support}, Resistance: ${resistance}`);
+        console.log(`Higher Timeframe Trend for ${pair}: ${longTermTrend}`);
 
         let finalSignal = 'HOLD';
 
-        const currentPrice = prices[0].close;
-        console.log(`Current Price for ${pair}: ${currentPrice}`);
-
-        // Signal Decision
-        if (
-            currentPrice > resistance &&
-            rsiSignal === 'Bullish' &&
-            bbSignal === 'Bullish' &&
-            maSignal === 'Bullish'
-        ) {
+        // Generate signals only if short timeframe aligns with higher timeframe
+        const currentPrice = shortPrices[0].close;
+        if (longTermTrend === 'Bullish' && currentPrice > resistance && (rsiSignal === 'Bullish' || bbSignal === 'Bullish')) {
             finalSignal = 'BUY';
-        } else if (
-            currentPrice < support &&
-            rsiSignal === 'Bearish' &&
-            bbSignal === 'Bearish' &&
-            maSignal === 'Bearish'
-        ) {
+        } else if (longTermTrend === 'Bearish' && currentPrice < support && (rsiSignal === 'Bearish' || bbSignal === 'Bearish')) {
             finalSignal = 'SELL';
         }
 
         console.log(`Signal for ${pair}: ${finalSignal}`);
 
+        // Send signal if valid
         if (!activeSignals[pair] && finalSignal !== 'HOLD') {
             const multiplier = 1.5;
             const stopLoss = finalSignal === 'BUY'
                 ? currentPrice - atr * multiplier
                 : currentPrice + atr * multiplier;
-
             const takeProfit = finalSignal === 'BUY'
                 ? currentPrice + atr * multiplier
                 : currentPrice - atr * multiplier;
 
             const signalTag = `Signal-${signalCounter++}`;
-
             const message = `📊 **Trading Signal for ${pair}** (Tag: ${signalTag}) 📊\n
             Signal: ${finalSignal}\n
             RSI: ${rsiSignal}\n
@@ -186,12 +182,15 @@ async function generateComprehensiveSignal(pair) {
             ATR: ${atr.toFixed(2)}\n
             Support: $${support.toFixed(2)}\n
             Resistance: $${resistance.toFixed(2)}\n
+            Higher Timeframe Trend: ${longTermTrend}\n
             Stop Loss: $${stopLoss.toFixed(2)}\n
             Take Profit: $${takeProfit.toFixed(2)}\n`;
 
-            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' })
-                .then(() => console.log('Signal sent to Telegram channel'))
-                .catch((err) => console.error('Error sending message to Telegram:', err));
+            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
+            activeSignals[pair] = { type: finalSignal, stopLoss, takeProfit, tag: signalTag, pair };
+
+
+
 
             activeSignals[pair] = {
                 type: finalSignal,
