@@ -7,6 +7,8 @@ const apiKey = process.env.TWELVE_DATA_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
+
+
 let activeSignals = {}; // Track active signals for all pairs
 let signalHistory = { successes: 0, failures: 0, total: 0 };
 let signalCounter = 1; // Simple counter for tagging signals
@@ -126,15 +128,26 @@ async function generateComprehensiveSignal(pair) {
             return;
         }
 
+        // Calculate indicators
         const rsiSignal = interpretRSI(prices);
         const bbSignal = interpretBollingerBands(prices);
         const maSignal = interpretMovingAverages(prices);
         const atr = calculateATR(prices);
         const { support, resistance } = calculateSupportResistance(prices);
 
-        let finalSignal = 'HOLD';
-        const currentPrice = prices[0].close;
+        // Log indicator results
+        console.log(`RSI for ${pair}: ${rsiSignal}`);
+        console.log(`Bollinger Bands for ${pair}: ${bbSignal}`);
+        console.log(`Moving Averages for ${pair}: ${maSignal}`);
+        console.log(`ATR for ${pair}: ${atr}`);
+        console.log(`Support: ${support}, Resistance: ${resistance}`);
 
+        let finalSignal = 'HOLD';
+
+        const currentPrice = prices[0].close;
+        console.log(`Current Price for ${pair}: ${currentPrice}`);
+
+        // Signal Decision
         if (
             currentPrice > resistance &&
             rsiSignal === 'Bullish' &&
@@ -151,16 +164,20 @@ async function generateComprehensiveSignal(pair) {
             finalSignal = 'SELL';
         }
 
+        console.log(`Signal for ${pair}: ${finalSignal}`);
+
         if (!activeSignals[pair] && finalSignal !== 'HOLD') {
             const multiplier = 1.5;
             const stopLoss = finalSignal === 'BUY'
                 ? currentPrice - atr * multiplier
                 : currentPrice + atr * multiplier;
+
             const takeProfit = finalSignal === 'BUY'
                 ? currentPrice + atr * multiplier
                 : currentPrice - atr * multiplier;
 
             const signalTag = `Signal-${signalCounter++}`;
+
             const message = `📊 **Trading Signal for ${pair}** (Tag: ${signalTag}) 📊\n
             Signal: ${finalSignal}\n
             RSI: ${rsiSignal}\n
@@ -176,12 +193,22 @@ async function generateComprehensiveSignal(pair) {
                 .then(() => console.log('Signal sent to Telegram channel'))
                 .catch((err) => console.error('Error sending message to Telegram:', err));
 
-            activeSignals[pair] = { type: finalSignal, stopLoss, takeProfit, tag: signalTag };
+            activeSignals[pair] = {
+                type: finalSignal,
+                stopLoss,
+                takeProfit,
+                atr,
+                support,
+                resistance,
+                tag: signalTag,
+                pair,
+            };
         }
     } catch (error) {
-        console.error(`Error generating signal for ${pair}: ${error.message}`);
+        console.error(`Error generating signal for ${pair}:`, error.message);
     }
 }
+
 
 // Monitor Active Signals
 async function monitorActiveSignals() {
