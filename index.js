@@ -52,7 +52,7 @@ function interpretRSI(prices, period = 14) {
 
     if (!latestRSI) return 'Neutral';
     if (latestRSI < 30) return 'Bullish';
-    if (latestRSI > 70) return 'Bearish';
+    if (latestRSI > 60) return 'Bearish';
     return 'Neutral';
 }
 
@@ -67,8 +67,9 @@ function interpretBollingerBands(prices, period = 20, stdDev = 2) {
     const latestClose = closes[closes.length - 1];
 
     if (!upper || !lower) return 'Neutral';
-    if (latestClose < lower[lower.length - 1]) return 'Bullish';
-    if (latestClose > upper[upper.length - 1]) return 'Bearish';
+    if (currentPrice > latestBollinger.middle && currentPrice < latestBollinger.upper) signal = 'BUY';
+    if (currentPrice < latestBollinger.middle && currentPrice > latestBollinger.lower) signal = 'SELL';
+
     return 'Neutral';
 }
 
@@ -121,9 +122,9 @@ function calculateSupportResistance(prices) {
 async function generateComprehensiveSignal(pair) {
     console.log(`Generating signal for ${pair}`);
     try {
-        const prices = await fetchForexCryptoData(pair, '15min'); // Fetch data for 15-minute timeframe
+        const prices = await fetchForexCryptoData(pair, '5min'); // Use 5-minute chart for more frequent signals
 
-        if (!prices || prices.length < 50) { // Ensure sufficient data for calculations
+        if (!prices || prices.length < 50) {
             console.log(`Not enough data for ${pair}.`);
             return;
         }
@@ -149,7 +150,7 @@ async function generateComprehensiveSignal(pair) {
             period: 14,
         });
 
-        // Validate indicator results
+        // Validate indicators
         if (!shortMA.length || !longMA.length || !rsi.length || !bollinger.length || !atr.length) {
             console.log(`Not enough data to calculate indicators for ${pair}.`);
             return;
@@ -163,33 +164,28 @@ async function generateComprehensiveSignal(pair) {
         const latestBollinger = bollinger[bollinger.length - 1];
         const latestATR = atr[atr.length - 1];
 
+        // Simplified signal logic
         let signal = 'HOLD';
         let stopLoss, takeProfit;
 
-        // Bullish Signal Logic
         if (
             latestShortMA > latestLongMA && // Uptrend
-            latestRSI < 40 && // Oversold during pullback
-            currentPrice > latestBollinger.upper // Breakout above Bollinger Band
+            (latestRSI < 50 || currentPrice > latestBollinger.middle) // RSI or Bollinger Band breakout
         ) {
             signal = 'BUY';
-            stopLoss = currentPrice - latestATR * 1.5; // ATR-based SL
-            takeProfit = currentPrice + latestATR * 3; // ATR-based TP
-        }
-
-        // Bearish Signal Logic
-        if (
+            stopLoss = currentPrice - latestATR * 1.5;
+            takeProfit = currentPrice + latestATR * 2;
+        } else if (
             latestShortMA < latestLongMA && // Downtrend
-            latestRSI > 60 && // Overbought during pullback
-            currentPrice < latestBollinger.lower // Breakout below Bollinger Band
+            (latestRSI > 50 || currentPrice < latestBollinger.middle) // RSI or Bollinger Band breakout
         ) {
             signal = 'SELL';
-            stopLoss = currentPrice + latestATR * 1.5; // ATR-based SL
-            takeProfit = currentPrice - latestATR * 3; // ATR-based TP
+            stopLoss = currentPrice + latestATR * 1.5;
+            takeProfit = currentPrice - latestATR * 2;
         }
 
+        // Generate signal message
         if (signal !== 'HOLD') {
-            console.log(`Signal for ${pair}: ${signal}`);
             const signalTag = `Signal-${signalCounter++}`;
             const message = `📊 **Trading Signal for ${pair}** (Tag: ${signalTag}) 📊\n
             Signal: ${signal}\n
@@ -200,19 +196,8 @@ async function generateComprehensiveSignal(pair) {
             Stop Loss: $${stopLoss.toFixed(2)}\n
             Take Profit: $${takeProfit.toFixed(2)}\n`;
 
-            // Send signal to Telegram
-            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' })
-                .then(() => console.log('Signal sent to Telegram channel'))
-                .catch((err) => console.error('Error sending message to Telegram:', err));
-
-            activeSignals[pair] = {
-                type: signal,
-                stopLoss,
-                takeProfit,
-                atr: latestATR,
-                tag: signalTag,
-                pair,
-            };
+            bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
+            activeSignals[pair] = { type: signal, stopLoss, takeProfit, pair, tag: signalTag };
         } else {
             console.log(`No signal generated for ${pair}.`);
         }
@@ -222,11 +207,12 @@ async function generateComprehensiveSignal(pair) {
 }
 
 
+
 // Monitor Active Signals
 async function monitorActiveSignals() {
     for (const pair in activeSignals) {
         const signal = activeSignals[pair];
-        const prices = await fetchForexCryptoData(pair, '15min'); // Fetch 15-minute data for monitoring
+        const prices = await fetchForexCryptoData(pair, '5min'); // Fetch 15-minute data for monitoring
         const currentPrice = prices[0]?.close;
 
         if (!currentPrice) continue;
