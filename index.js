@@ -10,10 +10,9 @@ const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
 const bot = new TelegramBot(botToken, { polling: true });
 
-const pairs = ['BTC/USD', 'EUR/USD']; // Trading pairs
-const interval = '5min'; // Supported timeframe
-const higherTimeframe = '15min'; // Higher timeframe for trend confirmation
-const riskRewardRatio = 2.0; // Default risk-reward ratio
+const pairs = ['BTC/USD']; // Trading pair
+const interval = '5min'; // Ensure it's a 3-minute timeframe
+const riskRewardRatio = 2.0; // Risk-Reward Ratio
 const atrLength = 20; // ATR Length
 const cprLength = 15; // CPR Lookback Period
 const emaShortLength = 30; // Short EMA Length
@@ -22,9 +21,9 @@ const emaLongLength = 100; // Long EMA Length
 let activeSignals = {}; // Track active trades
 
 // Fetch data from Twelve Data API
-async function fetchForexCryptoData(pair, timeframe) {
+async function fetchForexCryptoData(pair) {
     try {
-        const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(pair)}&interval=${timeframe}&apikey=${apiKey}`;
+        const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(pair)}&interval=${interval}&apikey=${apiKey}`;
         const response = await axios.get(url);
 
         if (response.data && response.data.values) {
@@ -34,22 +33,21 @@ async function fetchForexCryptoData(pair, timeframe) {
                 high: parseFloat(candle.high),
                 low: parseFloat(candle.low),
                 close: parseFloat(candle.close),
-                volume: parseFloat(candle.volume || 0), // Add volume if available
             }));
-            console.log(`Fetched ${prices.length} candles for ${pair} (${timeframe})`);
+            console.log(`Fetched ${prices.length} candles for ${pair}`);
             return prices.reverse(); // Return in chronological order
         } else {
             console.error(`No data for ${pair}: ${response.data.message || 'Unknown error'}`);
             return [];
         }
     } catch (error) {
-        console.error(`Error fetching data for ${pair} (${timeframe}): ${error.message}`);
+        console.error(`Error fetching data for ${pair}: ${error.message}`);
         return [];
     }
 }
 
 // Calculate indicators
-function calculateIndicators(prices, higherPrices) {
+function calculateIndicators(prices) {
     const closes = prices.map((p) => p.close);
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
@@ -74,65 +72,40 @@ function calculateIndicators(prices, higherPrices) {
     const cprUpper = (pivotHigh + pivotLow) / 2;
     const cprLower = pivotClose;
 
-    // Higher timeframe EMA for trend filter
-    const higherCloses = higherPrices.map((p) => p.close);
-    const higherEmaShort = technicalindicators.EMA.calculate({ values: higherCloses, period: emaShortLength });
-    const higherEmaLong = technicalindicators.EMA.calculate({ values: higherCloses, period: emaLongLength });
-
     return {
         emaShort: emaShort[emaShort.length - 1],
         emaLong: emaLong[emaLong.length - 1],
         atr: atr[atr.length - 1],
         cprUpper,
         cprLower,
-        higherEmaShort: higherEmaShort[higherEmaShort.length - 1],
-        higherEmaLong: higherEmaLong[higherEmaLong.length - 1],
     };
 }
 
 // Generate signals
 async function generateSignal(pair) {
     console.log(`Generating signal for ${pair}`);
-    const prices = await fetchForexCryptoData(pair, interval);
-    const higherPrices = await fetchForexCryptoData(pair, higherTimeframe);
+    const prices = await fetchForexCryptoData(pair);
 
-    if (!prices || prices.length < Math.max(emaLongLength, atrLength, cprLength) || !higherPrices) {
+    if (!prices || prices.length < Math.max(emaLongLength, atrLength, cprLength)) {
         console.log(`Not enough data for ${pair}`);
         return;
     }
 
-    const {
-        emaShort,
-        emaLong,
-        atr,
-        cprUpper,
-        cprLower,
-        higherEmaShort,
-        higherEmaLong,
-    } = calculateIndicators(prices, higherPrices);
-
+    const { emaShort, emaLong, atr, cprUpper, cprLower } = calculateIndicators(prices);
     const currentPrice = prices[prices.length - 1].close;
 
     let signal = 'HOLD';
     let stopLoss, takeProfit;
 
     // Long Condition
-    if (
-        currentPrice > cprUpper &&
-        emaShort > emaLong &&
-        higherEmaShort > higherEmaLong
-    ) {
+    if (currentPrice > cprUpper && emaShort > emaLong) {
         signal = 'BUY';
         stopLoss = currentPrice - atr;
         takeProfit = currentPrice + atr * riskRewardRatio;
     }
 
     // Short Condition
-    if (
-        currentPrice < cprLower &&
-        emaShort < emaLong &&
-        higherEmaShort < higherEmaLong
-    ) {
+    if (currentPrice < cprLower && emaShort < emaLong) {
         signal = 'SELL';
         stopLoss = currentPrice + atr;
         takeProfit = currentPrice - atr * riskRewardRatio;
@@ -160,7 +133,7 @@ async function generateSignal(pair) {
 async function monitorSignals() {
     for (const pair in activeSignals) {
         const signal = activeSignals[pair];
-        const prices = await fetchForexCryptoData(pair, interval);
+        const prices = await fetchForexCryptoData(pair);
         const currentPrice = prices[prices.length - 1]?.close;
 
         if (!currentPrice) continue;
@@ -184,7 +157,7 @@ async function monitorSignals() {
 // Run the bot
 setInterval(() => {
     pairs.forEach((pair) => generateSignal(pair));
-}, 5 * 60 * 1000); // Run every 5 minutes
+}, 5 * 60 * 1000); // Run every 3 minutes
 
 setInterval(() => {
     monitorSignals();
