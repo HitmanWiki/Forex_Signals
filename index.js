@@ -11,7 +11,7 @@ const channelId = process.env.TELEGRAM_CHANNEL_ID;
 const bot = new TelegramBot(botToken, { polling: true });
 
 const pairs = ['BTC/USD', 'EUR/USD']; // Trading pairs
-const interval = '3min'; // Short timeframe
+const interval = '5min'; // Supported timeframe
 const higherTimeframe = '15min'; // Higher timeframe for trend confirmation
 const riskRewardRatio = 2.0; // Default risk-reward ratio
 const atrLength = 20; // ATR Length
@@ -184,7 +184,7 @@ async function monitorSignals() {
 // Run the bot
 setInterval(() => {
     pairs.forEach((pair) => generateSignal(pair));
-}, 3 * 60 * 1000); // Run every 3 minutes
+}, 5 * 60 * 1000); // Run every 5 minutes
 
 setInterval(() => {
     monitorSignals();
