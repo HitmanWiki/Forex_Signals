@@ -53,11 +53,16 @@ async function fetchData(pair, interval) {
     }
 }
 
-// Calculate indicators
+/// Calculate indicators
 function calculateIndicators(prices) {
     const closes = prices.map((p) => p.close);
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
+
+    console.log("Calculating indicators...");
+    console.log("Closes:", closes);
+    console.log("Highs:", highs);
+    console.log("Lows:", lows);
 
     // ATR Calculation
     const atr = technicalindicators.ATR.calculate({
@@ -66,6 +71,7 @@ function calculateIndicators(prices) {
         close: closes,
         period: atrLength,
     });
+    console.log("ATR:", atr);
 
     // EMA Calculations
     const shortEma = technicalindicators.EMA.calculate({
@@ -76,9 +82,12 @@ function calculateIndicators(prices) {
         values: closes,
         period: longEmaLength,
     });
+    console.log("Short EMA:", shortEma);
+    console.log("Long EMA:", longEma);
 
     // RSI Calculation
     const rsi = technicalindicators.RSI.calculate({ values: closes, period: rsiLength });
+    console.log("RSI:", rsi);
 
     // MACD Calculation
     const macd = technicalindicators.MACD.calculate({
@@ -89,26 +98,22 @@ function calculateIndicators(prices) {
         SimpleMAOscillator: false,
         SimpleMASignal: false,
     });
-
-    // SMA for short-term trend confirmation
-    const sma = technicalindicators.SMA.calculate({ values: closes, period: 5 });
+    console.log("MACD:", macd);
 
     return {
         shortEma: shortEma[shortEma.length - 1],
         longEma: longEma[longEma.length - 1],
         rsi: rsi[rsi.length - 1],
-        macdHistogram: macd.length > 0 ? macd[macd.length - 1].histogram : 0,
+        macdHistogram: macd.length > 0 ? macd[macd.length - 1].histogram : undefined,
         atr: atr[atr.length - 1],
-        sma: sma[sma.length - 1], // Short-term trend
     };
 }
 
-// Generate signals
 async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
     const prices = await fetchData(pair, interval);
 
-    if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength, macdSlow + macdSignal)) {
+    if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength)) {
         console.log(`Not enough data for ${pair}`);
         return;
     }
@@ -119,20 +124,22 @@ async function generateSignal() {
         rsi,
         macdHistogram,
         atr,
-
     } = calculateIndicators(prices);
 
-    const currentPrice = prices[prices.length - 1].close;
-    const recentHigh = Math.max(...prices.slice(-10).map((p) => p.high));
-    const recentLow = Math.min(...prices.slice(-10).map((p) => p.low));
-
+    // Log all calculated indicators
     console.log({
         shortEma,
         longEma,
         rsi,
         macdHistogram,
         atr,
+    });
 
+    const currentPrice = prices[prices.length - 1].close;
+    const recentHigh = Math.max(...prices.slice(-10).map((p) => p.high));
+    const recentLow = Math.min(...prices.slice(-10).map((p) => p.low));
+
+    console.log({
         currentPrice,
         recentHigh,
         recentLow,
@@ -142,26 +149,14 @@ async function generateSignal() {
     let stopLoss, takeProfit;
 
     // Long Condition
-    if (
-        currentPrice > recentHigh &&
-        shortEma > longEma &&
-        rsi > 48 &&
-        macdHistogram > 0 &&
-        currentPrice > sma
-    ) {
+    if (currentPrice > recentHigh && shortEma > longEma && rsi > 50) {
         signal = "BUY";
         stopLoss = currentPrice - atr * 1.5;
         takeProfit = currentPrice + atr * 2;
     }
 
     // Short Condition
-    if (
-        currentPrice < recentLow &&
-        shortEma < longEma &&
-        rsi < 52 &&
-        macdHistogram < 0 &&
-        currentPrice < sma
-    ) {
+    if (currentPrice < recentLow && shortEma < longEma && rsi < 50) {
         signal = "SELL";
         stopLoss = currentPrice + atr * 1.5;
         takeProfit = currentPrice - atr * 2;
@@ -171,10 +166,9 @@ async function generateSignal() {
         const message = `📊 **Trading Signal for ${pair}** 📊\n
     Signal: ${signal}\n
     Current Price: $${currentPrice.toFixed(2)}\n
-    RSI: ${rsi.toFixed(2)}\n
-      MACD Histogram: ${macdHistogram !== undefined ? macdHistogram.toFixed(2) : "Neutral"
-            }\n
-    ATR: $${atr.toFixed(2)}\n
+    RSI: ${rsi?.toFixed(2) || "N/A"}\n
+    MACD Histogram: ${macdHistogram?.toFixed(2) || "N/A"}\n
+    ATR: $${atr?.toFixed(2) || "N/A"}\n
     Stop Loss: $${stopLoss.toFixed(2)}\n
     Take Profit: $${takeProfit.toFixed(2)}\n`;
 
