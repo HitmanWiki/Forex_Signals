@@ -16,9 +16,6 @@ const atrLength = 14; // ATR length
 const shortEmaLength = 9; // Short EMA
 const longEmaLength = 21; // Long EMA
 const rsiLength = 14; // RSI length
-const macdFast = 12; // MACD fast period
-const macdSlow = 26; // MACD slow periodsxd0-
-const macdSignal = 9; // MACD signal period
 
 let activeSignal = null; // Track active trade
 
@@ -89,16 +86,7 @@ function calculateIndicators(prices) {
     const rsi = technicalindicators.RSI.calculate({ values: closes, period: rsiLength });
     console.log("RSI:", rsi);
 
-    // MACD Calculation
-    const macd = technicalindicators.MACD.calculate({
-        values: closes,
-        fastPeriod: macdFast,
-        slowPeriod: macdSlow,
-        signalPeriod: macdSignal,
-        SimpleMAOscillator: false,
-        SimpleMASignal: false,
-    });
-    console.log("MACD:", macd);
+
 
     return {
         shortEma: shortEma[shortEma.length - 1],
@@ -122,7 +110,7 @@ async function generateSignal() {
         shortEma,
         longEma,
         rsi,
-        macdHistogram,
+
         atr,
     } = calculateIndicators(prices);
 
@@ -131,7 +119,7 @@ async function generateSignal() {
         shortEma,
         longEma,
         rsi,
-        macdHistogram,
+
         atr,
     });
 
