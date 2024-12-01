@@ -92,7 +92,7 @@ function calculateIndicators(prices) {
         shortEma: shortEma[shortEma.length - 1],
         longEma: longEma[longEma.length - 1],
         rsi: rsi[rsi.length - 1],
-        macdHistogram: macd.length > 0 ? macd[macd.length - 1].histogram : undefined,
+
         atr: atr[atr.length - 1],
     };
 }
@@ -155,7 +155,7 @@ async function generateSignal() {
     Signal: ${signal}\n
     Current Price: $${currentPrice.toFixed(2)}\n
     RSI: ${rsi?.toFixed(2) || "N/A"}\n
-    MACD Histogram: ${macdHistogram?.toFixed(2) || "N/A"}\n
+   
     ATR: $${atr?.toFixed(2) || "N/A"}\n
     Stop Loss: $${stopLoss.toFixed(2)}\n
     Take Profit: $${takeProfit.toFixed(2)}\n`;
