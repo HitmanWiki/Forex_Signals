@@ -90,16 +90,12 @@ function calculateIndicators(prices) {
         SimpleMASignal: false,
     });
 
-    // SMA for short-term trend confirmation
-    const sma = technicalindicators.SMA.calculate({ values: closes, period: 5 });
-
     return {
         shortEma: shortEma[shortEma.length - 1],
         longEma: longEma[longEma.length - 1],
         rsi: rsi[rsi.length - 1],
         macdHistogram: macd.length > 0 ? macd[macd.length - 1].histogram : 0,
         atr: atr[atr.length - 1],
-        sma: sma[sma.length - 1], // Short-term trend
     };
 }
 
@@ -108,7 +104,7 @@ async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
     const prices = await fetchData(pair, interval);
 
-    if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength)) {
+    if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength, macdSlow + macdSignal)) {
         console.log(`Not enough data for ${pair}`);
         return;
     }
@@ -119,7 +115,6 @@ async function generateSignal() {
         rsi,
         macdHistogram,
         atr,
-        sma,
     } = calculateIndicators(prices);
 
     const currentPrice = prices[prices.length - 1].close;
@@ -132,7 +127,6 @@ async function generateSignal() {
         rsi,
         macdHistogram,
         atr,
-        sma,
         currentPrice,
         recentHigh,
         recentLow,
@@ -145,9 +139,8 @@ async function generateSignal() {
     if (
         currentPrice > recentHigh &&
         shortEma > longEma &&
-        rsi > 48 &&
-        macdHistogram > 0 &&
-        currentPrice > sma
+        rsi > 50 &&
+        (macdHistogram > 0 || macdHistogram === undefined)
     ) {
         signal = "BUY";
         stopLoss = currentPrice - atr * 1.5;
@@ -158,9 +151,8 @@ async function generateSignal() {
     if (
         currentPrice < recentLow &&
         shortEma < longEma &&
-        rsi < 52 &&
-        macdHistogram < 0 &&
-        currentPrice < sma
+        rsi < 50 &&
+        (macdHistogram < 0 || macdHistogram === undefined)
     ) {
         signal = "SELL";
         stopLoss = currentPrice + atr * 1.5;
@@ -172,7 +164,8 @@ async function generateSignal() {
     Signal: ${signal}\n
     Current Price: $${currentPrice.toFixed(2)}\n
     RSI: ${rsi.toFixed(2)}\n
-    MACD Histogram: ${macdHistogram.toFixed(2)}\n
+    MACD Histogram: ${macdHistogram !== undefined ? macdHistogram.toFixed(2) : "Neutral"
+            }\n
     ATR: $${atr.toFixed(2)}\n
     Stop Loss: $${stopLoss.toFixed(2)}\n
     Take Profit: $${takeProfit.toFixed(2)}\n`;
