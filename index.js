@@ -19,7 +19,6 @@ const rsiLength = 14; // RSI length
 const macdFast = 12; // MACD fast period
 const macdSlow = 26; // MACD slow period
 const macdSignal = 9; // MACD signal period
-const volumeMultiplier = 1.5; // Volume confirmation multiplier
 
 let activeSignal = null; // Track active trade
 
@@ -59,7 +58,6 @@ function calculateIndicators(prices) {
     const closes = prices.map((p) => p.close);
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
-    const volumes = prices.map((p) => p.volume);
 
     // ATR Calculation
     const atr = technicalindicators.ATR.calculate({
@@ -92,9 +90,8 @@ function calculateIndicators(prices) {
         SimpleMASignal: false,
     });
 
-    // Average Volume
-    const avgVolume =
-        volumes.slice(-atrLength).reduce((sum, vol) => sum + vol, 0) / atrLength;
+    // SMA for short-term trend confirmation
+    const sma = technicalindicators.SMA.calculate({ values: closes, period: 5 });
 
     return {
         shortEma: shortEma[shortEma.length - 1],
@@ -102,7 +99,7 @@ function calculateIndicators(prices) {
         rsi: rsi[rsi.length - 1],
         macdHistogram: macd.length > 0 ? macd[macd.length - 1].histogram : 0,
         atr: atr[atr.length - 1],
-        avgVolume,
+        sma: sma[sma.length - 1], // Short-term trend
     };
 }
 
@@ -122,13 +119,24 @@ async function generateSignal() {
         rsi,
         macdHistogram,
         atr,
-        avgVolume,
+        sma,
     } = calculateIndicators(prices);
 
     const currentPrice = prices[prices.length - 1].close;
-    const currentVolume = prices[prices.length - 1].volume;
     const recentHigh = Math.max(...prices.slice(-10).map((p) => p.high));
     const recentLow = Math.min(...prices.slice(-10).map((p) => p.low));
+
+    console.log({
+        shortEma,
+        longEma,
+        rsi,
+        macdHistogram,
+        atr,
+        sma,
+        currentPrice,
+        recentHigh,
+        recentLow,
+    });
 
     let signal = "HOLD";
     let stopLoss, takeProfit;
@@ -137,26 +145,26 @@ async function generateSignal() {
     if (
         currentPrice > recentHigh &&
         shortEma > longEma &&
+        rsi > 48 &&
         macdHistogram > 0 &&
-        rsi > 55 &&
-        currentVolume > avgVolume * volumeMultiplier
+        currentPrice > sma
     ) {
         signal = "BUY";
-        stopLoss = currentPrice - atr;
-        takeProfit = currentPrice + atr * 2; // Risk-reward 2:1
+        stopLoss = currentPrice - atr * 1.5;
+        takeProfit = currentPrice + atr * 2;
     }
 
     // Short Condition
     if (
         currentPrice < recentLow &&
         shortEma < longEma &&
+        rsi < 52 &&
         macdHistogram < 0 &&
-        rsi < 45 &&
-        currentVolume > avgVolume * volumeMultiplier
+        currentPrice < sma
     ) {
         signal = "SELL";
-        stopLoss = currentPrice + atr;
-        takeProfit = currentPrice - atr * 2; // Risk-reward 2:1
+        stopLoss = currentPrice + atr * 1.5;
+        takeProfit = currentPrice - atr * 2;
     }
 
     if (signal !== "HOLD") {
@@ -166,7 +174,6 @@ async function generateSignal() {
     RSI: ${rsi.toFixed(2)}\n
     MACD Histogram: ${macdHistogram.toFixed(2)}\n
     ATR: $${atr.toFixed(2)}\n
-    Volume: ${currentVolume} (Avg: ${avgVolume.toFixed(2)})\n
     Stop Loss: $${stopLoss.toFixed(2)}\n
     Take Profit: $${takeProfit.toFixed(2)}\n`;
 
