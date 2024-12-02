@@ -106,48 +106,58 @@ async function generateSignal() {
         return;
     }
 
-    const {
-        shortEma,
-        longEma,
-        rsi,
-
-        atr,
-    } = calculateIndicators(prices);
-
-    // Log all calculated indicators
-    console.log({
-        shortEma,
-        longEma,
-        rsi,
-
-        atr,
-    });
+    const { shortEma, longEma, rsi, atr } = calculateIndicators(prices);
 
     const currentPrice = prices[prices.length - 1].close;
     const recentHigh = Math.max(...prices.slice(-10).map((p) => p.high));
     const recentLow = Math.min(...prices.slice(-10).map((p) => p.low));
 
-    console.log({
-        currentPrice,
-        recentHigh,
-        recentLow,
-    });
+    // Log the indicator and price information for debugging
+    console.log("=== Indicator Values ===");
+    console.log("Short EMA:", shortEma);
+    console.log("Long EMA:", longEma);
+    console.log("RSI:", rsi);
+    console.log("ATR:", atr);
+    console.log("=== Price Info ===");
+    console.log("Current Price:", currentPrice);
+    console.log("Recent High:", recentHigh);
+    console.log("Recent Low:", recentLow);
 
     let signal = "HOLD";
     let stopLoss, takeProfit;
 
-    // Long Condition
-    if (currentPrice > recentHigh && shortEma > longEma && rsi > 50) {
+    // Adjusted Buy Condition
+    if (
+        currentPrice <= (recentLow + 0.1 * atr) &&
+        shortEma > (longEma + 0.5 * atr) &&
+        rsi < 30
+    ) {
         signal = "BUY";
         stopLoss = currentPrice - atr * 1.5;
         takeProfit = currentPrice + atr * 2;
+
+        // Log the conditions that triggered the BUY signal
+        console.log("BUY Signal Triggered");
+        console.log("Condition 1: Current Price <= Recent Low + 0.1 * ATR");
+        console.log("Condition 2: Short EMA > Long EMA + 0.5 * ATR");
+        console.log("Condition 3: RSI < 30");
     }
 
-    // Short Condition
-    if (currentPrice < recentLow && shortEma < longEma && rsi < 50) {
+    // Adjusted Sell Condition
+    if (
+        currentPrice >= (recentHigh - 0.1 * atr) &&
+        shortEma < (longEma - 0.5 * atr) &&
+        rsi > 70
+    ) {
         signal = "SELL";
         stopLoss = currentPrice + atr * 1.5;
         takeProfit = currentPrice - atr * 2;
+
+        // Log the conditions that triggered the SELL signal
+        console.log("SELL Signal Triggered");
+        console.log("Condition 1: Current Price >= Recent High - 0.1 * ATR");
+        console.log("Condition 2: Short EMA < Long EMA - 0.5 * ATR");
+        console.log("Condition 3: RSI > 70");
     }
 
     if (signal !== "HOLD") {
@@ -155,13 +165,14 @@ async function generateSignal() {
     Signal: ${signal}\n
     Current Price: $${currentPrice.toFixed(2)}\n
     RSI: ${rsi?.toFixed(2) || "N/A"}\n
-   
     ATR: $${atr?.toFixed(2) || "N/A"}\n
     Stop Loss: $${stopLoss.toFixed(2)}\n
     Take Profit: $${takeProfit.toFixed(2)}\n`;
 
         bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
         activeSignal = { signal, stopLoss, takeProfit };
+
+        console.log("Signal Sent to Telegram:", signal);
     } else {
         console.log("No signal generated.");
     }
