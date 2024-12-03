@@ -23,32 +23,33 @@ let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
 
 
 // Fetch candles from CoinGecko
-try {
-    console.log(`Fetching data for ${symbol} with interval: ${interval}`);
-    const response = await axios.get(COINEX_API_URL, {
-        params: { market: symbol, type: interval, limit: limit },
-    });
-    if (response.data && response.data.data) {
-        const candles = response.data.data.map((candle) => ({
-            time: new Date(candle[0] * 1000),
-            open: parseFloat(candle[1]),
-            close: parseFloat(candle[2]),
-            high: parseFloat(candle[3]),
-            low: parseFloat(candle[4]),
-            volume: parseFloat(candle[5]),
-        }));
+async function fetchCandles() {
+    try {
+        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
+        const response = await axios.get(COINEX_API_URL, {
+            params: { market: symbol, type: interval, limit: limit },
+        });
+        if (response.data && response.data.data) {
+            const candles = response.data.data.map((candle) => ({
+                time: new Date(candle[0] * 1000),
+                open: parseFloat(candle[1]),
+                close: parseFloat(candle[2]),
+                high: parseFloat(candle[3]),
+                low: parseFloat(candle[4]),
+                volume: parseFloat(candle[5]),
+            }));
 
-        console.log(`Fetched ${candles.length} candles for ${symbol}`);
-        return candles.slice(-limit); // Return the last `limit` candles
-    } else {
-        console.error("Unexpected response format:", response.data);
+            console.log(`Fetched ${candles.length} candles for ${symbol}`);
+            return candles.slice(-limit); // Return the last `limit` candles
+        } else {
+            console.error("Unexpected response format:", response.data);
+            return [];
+        }
+    } catch (error) {
+        console.error(`Error fetching candles: ${error.message}`);
         return [];
     }
-} catch (error) {
-    console.error(`Error fetching candles: ${error.message}`);
-    return [];
 }
-
 
 
 // Calculate Indicators
