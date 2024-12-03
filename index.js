@@ -10,7 +10,7 @@ const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
 const bot = new TelegramBot(botToken, { polling: true });
 const pair = "BTC/USD";
-const interval = "1min";
+const interval = "5min";
 
 // Strategy Parameters
 const atrLength = 20;
@@ -144,5 +144,5 @@ async function monitorSignal() {
 }
 
 // Schedule Signal Generation and Monitoring
-setInterval(generateSignal, 1 * 60 * 1000); // Every 5 minutes
+setInterval(generateSignal, 5 * 60 * 1000); // Every 5 minutes
 setInterval(monitorSignal, 30 * 1000); // Every 30 seconds
