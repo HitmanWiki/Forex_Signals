@@ -78,14 +78,14 @@ function calculateIndicators(candles) {
 
 // Generate a signal
 function generateSignal(candles, indicators) {
-    const { shortEma, longEma, atr, rsi } = indicators;
+    const { shortEma, longEma, atr } = indicators;
     const currentPrice = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
     console.log(`Short EMA: ${shortEma}`);
     console.log(`Long EMA: ${longEma}`);
     console.log(`ATR: ${atr}`);
-    console.log(`RSI: ${rsi}`);
+    // console.log(`RSI: ${rsi}`);
     console.log("=== Price Info ===");
     console.log(`Current Price: ${currentPrice}`);
 
@@ -93,13 +93,13 @@ function generateSignal(candles, indicators) {
 
     const longCondition =
         currentPrice >= shortEma * 0.999 &&
-        shortEma > longEma &&
-        rsi > 50;
+        shortEma > longEma;
+    // rsi > 50;
 
     const shortCondition =
         currentPrice <= shortEma * 1.001 &&
-        shortEma < longEma &&
-        rsi < 50;
+        shortEma < longEma;
+    // rsi < 50;
 
     if (longCondition) {
         console.log("BUY Signal Detected!");
