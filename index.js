@@ -11,7 +11,7 @@ const binanceUrl = `https://api.binance.com/api/v3/klines`;
 
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID; // Replace with your chat ID
+const chatId = process.env.TELEGRAM_CHANNEL_ID; // Replace with your chat ID
 const bot = new TelegramBot(botToken, { polling: true });
 
 let activeSignal = null; // Track active signals
