@@ -1,172 +1,183 @@
-const Binance = require("node-binance-api");
-const TelegramBot = require("node-telegram-bot-api");
-const technicalindicators = require("technicalindicators");
-require("dotenv").config();
+const Binance = require('binance-api-node').default;
+const TelegramBot = require('node-telegram-bot-api');
+const technicalindicators = require('technicalindicators');
+require('dotenv').config();
 
-// Binance API and Telegram Bot Setup
-const binance = new Binance().options({
-    APIKEY: process.env.BINANCE_API_KEY,
-    APISECRET: process.env.BINANCE_API_SECRET,
+// Binance Client Initialization
+const client = Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
 });
+
+// Telegram Bot Initialization
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
-// Bot Configuration
-const pair = "BTCUSDT"; // Pair to trade
-const interval = "3m"; // Binance-supported interval
-const atrLength = 20; // ATR length for stop-loss/take-profit
-const emaShortLength = 30; // Short EMA length
-const emaLongLength = 100; // Long EMA length
-const cprLength = 15; // CPR calculation period
-const riskRewardRatio = 2.0; // Risk-Reward ratio
+// Strategy Configuration
+const pair = 'BTCUSDT';
+const interval = '3m'; // 3-minute chart
+const atrLength = 20;
+const emaShortLength = 30;
+const emaLongLength = 100;
+const riskRewardRatio = 2;
+let activeSignal = null; // Track active signal
+let signalHistory = { successes: 0, failures: 0, total: 0 };
 
-let activeSignal = null; // Track the active signal
-
-// Fetch 3-minute candles from Binance
-// Fetch 3-minute candles from Binance using promises
-async function fetchCandleData() {
+// Fetch Candles from Binance
+async function fetchCandles(symbol, interval, limit = 30) {
     try {
-        const candles = await binance.futuresCandlesticks(pair, interval, { limit: 30 });
-        const formattedData = candles.map((candle) => ({
-            time: new Date(candle[0]),
-            open: parseFloat(candle[1]),
-            high: parseFloat(candle[2]),
-            low: parseFloat(candle[3]),
-            close: parseFloat(candle[4]),
-            volume: parseFloat(candle[5]),
+        const candles = await client.futuresCandles({
+            symbol,
+            interval,
+            limit,
+        });
+
+        return candles.map((candle) => ({
+            time: new Date(candle.openTime),
+            open: parseFloat(candle.open),
+            high: parseFloat(candle.high),
+            low: parseFloat(candle.low),
+            close: parseFloat(candle.close),
+            volume: parseFloat(candle.volume),
         }));
-        console.log(`Successfully fetched ${formattedData.length} candles for ${pair}`);
-        return formattedData.reverse(); // Return in chronological order
     } catch (error) {
-        console.error(`Error fetching data from Binance: ${error.message}`);
+        console.error('Error fetching candles:', error.message);
         return [];
     }
 }
 
-
-// Calculate indicators
+// Calculate Indicators
 function calculateIndicators(prices) {
     const closes = prices.map((p) => p.close);
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
 
-    const atr = technicalindicators.ATR.calculate({ high: highs, low: lows, close: closes, period: atrLength });
-    const emaShort = technicalindicators.EMA.calculate({ values: closes, period: emaShortLength });
-    const emaLong = technicalindicators.EMA.calculate({ values: closes, period: emaLongLength });
+    const atr = technicalindicators.ATR.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: atrLength,
+    });
 
-    const pivotHigh = Math.max(...highs.slice(-cprLength));
-    const pivotLow = Math.min(...lows.slice(-cprLength));
-    const pivotClose = closes.slice(-cprLength).reduce((a, b) => a + b, 0) / cprLength;
+    const emaShort = technicalindicators.EMA.calculate({
+        values: closes,
+        period: emaShortLength,
+    });
 
-    const cprUpper = (pivotHigh + pivotLow) / 2;
-    const cprLower = pivotClose;
+    const emaLong = technicalindicators.EMA.calculate({
+        values: closes,
+        period: emaLongLength,
+    });
 
     return {
         atr: atr[atr.length - 1],
         emaShort: emaShort[emaShort.length - 1],
         emaLong: emaLong[emaLong.length - 1],
-        cprUpper,
-        cprLower,
     };
 }
 
-// Generate trading signals
+// Generate Signal
 async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
-    const prices = await fetchCandleData();
+    const prices = await fetchCandles(pair, interval);
 
-    if (prices.length < Math.max(emaShortLength, emaLongLength, atrLength)) {
-        console.log(`Not enough data to calculate indicators.`);
+    if (!prices || prices.length < Math.max(atrLength, emaShortLength, emaLongLength)) {
+        console.log(`Not enough data for ${pair}.`);
         return;
     }
 
-    const { atr, emaShort, emaLong, cprUpper, cprLower } = calculateIndicators(prices);
+    const { atr, emaShort, emaLong } = calculateIndicators(prices);
     const currentPrice = prices[prices.length - 1].close;
+    const recentHigh = Math.max(...prices.slice(-15).map((p) => p.high));
+    const recentLow = Math.min(...prices.slice(-15).map((p) => p.low));
 
-    let signal = "HOLD";
+    let signal = 'HOLD';
     let stopLoss, takeProfit;
 
-    // Long Condition
-    if (currentPrice > cprUpper && emaShort > emaLong) {
-        signal = "BUY";
+    if (currentPrice > recentHigh && emaShort > emaLong) {
+        signal = 'BUY';
         stopLoss = currentPrice - atr;
         takeProfit = currentPrice + atr * riskRewardRatio;
-    }
-
-    // Short Condition
-    if (currentPrice < cprLower && emaShort < emaLong) {
-        signal = "SELL";
+    } else if (currentPrice < recentLow && emaShort < emaLong) {
+        signal = 'SELL';
         stopLoss = currentPrice + atr;
         takeProfit = currentPrice - atr * riskRewardRatio;
     }
 
-    if (signal !== "HOLD" && !activeSignal) {
-        activeSignal = { signal, stopLoss, takeProfit, currentPrice, time: new Date() };
-        const message = `📊 **New Trading Signal for ${pair}** 📊\n
-Signal: ${signal}\n
-Current Price: $${currentPrice.toFixed(2)}\n
-Stop Loss: $${stopLoss.toFixed(2)}\n
-Take Profit: $${takeProfit.toFixed(2)}\n
-ATR: $${atr.toFixed(2)}\n
-EMA Short: $${emaShort.toFixed(2)}\n
-EMA Long: $${emaLong.toFixed(2)}\n
-CPR Upper: $${cprUpper.toFixed(2)}\n
-CPR Lower: $${cprLower.toFixed(2)}\n
-Time: ${new Date().toLocaleString()}`;
+    if (signal !== 'HOLD') {
+        activeSignal = { signal, stopLoss, takeProfit, currentPrice };
+        signalHistory.total++;
 
-        bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
+        const message = `📊 **Trading Signal for ${pair}** 📊\n
+        Signal: ${signal}\n
+        Current Price: $${currentPrice.toFixed(2)}\n
+        Stop Loss: $${stopLoss.toFixed(2)}\n
+        Take Profit: $${takeProfit.toFixed(2)}\n
+        ATR: $${atr.toFixed(2)}\n
+        EMA Short: $${emaShort.toFixed(2)}\n
+        EMA Long: $${emaLong.toFixed(2)}\n`;
+
+        bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
     } else {
-        console.log("No new signal generated.");
+        console.log('No signal generated.');
     }
 }
 
-// Monitor active signal
+// Monitor Active Signals
 async function monitorActiveSignal() {
     if (!activeSignal) return;
 
-    const prices = await fetchCandleData();
+    const prices = await fetchCandles(pair, interval);
     const currentPrice = prices[prices.length - 1]?.close;
 
     if (!currentPrice) return;
 
-    const { signal, stopLoss, takeProfit } = activeSignal;
-
-    if (signal === "BUY" && currentPrice <= stopLoss) {
-        console.log("BUY signal stopped out.");
-        bot.sendMessage(channelId, `🚨 **BUY Signal Stopped Out** 🚨\nCurrent Price: $${currentPrice.toFixed(2)}`);
+    if (activeSignal.signal === 'BUY' && currentPrice >= activeSignal.takeProfit) {
+        signalHistory.successes++;
+        bot.sendMessage(
+            channelId,
+            `✅ **BUY Signal Success for ${pair}**\n
+            Entry Price: $${activeSignal.currentPrice.toFixed(2)}\n
+            Exit Price: $${currentPrice.toFixed(2)}\n
+            Profit Target Hit!`,
+            { parse_mode: 'Markdown' }
+        );
         activeSignal = null;
-    } else if (signal === "BUY" && currentPrice >= takeProfit) {
-        console.log("BUY signal hit take profit.");
-        bot.sendMessage(channelId, `🎉 **BUY Signal Hit Take Profit** 🎉\nCurrent Price: $${currentPrice.toFixed(2)}`);
+    } else if (activeSignal.signal === 'SELL' && currentPrice <= activeSignal.takeProfit) {
+        signalHistory.successes++;
+        bot.sendMessage(
+            channelId,
+            `✅ **SELL Signal Success for ${pair}**\n
+            Entry Price: $${activeSignal.currentPrice.toFixed(2)}\n
+            Exit Price: $${currentPrice.toFixed(2)}\n
+            Profit Target Hit!`,
+            { parse_mode: 'Markdown' }
+        );
         activeSignal = null;
-    } else if (signal === "SELL" && currentPrice >= stopLoss) {
-        console.log("SELL signal stopped out.");
-        bot.sendMessage(channelId, `🚨 **SELL Signal Stopped Out** 🚨\nCurrent Price: $${currentPrice.toFixed(2)}`);
-        activeSignal = null;
-    } else if (signal === "SELL" && currentPrice <= takeProfit) {
-        console.log("SELL signal hit take profit.");
-        bot.sendMessage(channelId, `🎉 **SELL Signal Hit Take Profit** 🎉\nCurrent Price: $${currentPrice.toFixed(2)}`);
+    } else if (currentPrice <= activeSignal.stopLoss || currentPrice >= activeSignal.stopLoss) {
+        signalHistory.failures++;
+        bot.sendMessage(
+            channelId,
+            `❌ **Signal Failed for ${pair}**\n
+            Entry Price: $${activeSignal.currentPrice.toFixed(2)}\n
+            Stop Loss Hit at $${activeSignal.stopLoss.toFixed(2)}.`,
+            { parse_mode: 'Markdown' }
+        );
         activeSignal = null;
     }
 }
 
-// Send hourly updates
-function sendHourlyUpdate() {
-    if (!activeSignal) {
-        bot.sendMessage(channelId, `ℹ️ **No Active Signal** ℹ️`);
-    } else {
-        const { signal, stopLoss, takeProfit, currentPrice, time } = activeSignal;
-        const message = `📊 **Active Signal Update for ${pair}** 📊\n
-Signal: ${signal}\n
-Entry Price: $${currentPrice.toFixed(2)}\n
-Stop Loss: $${stopLoss.toFixed(2)}\n
-Take Profit: $${takeProfit.toFixed(2)}\n
-Time: ${new Date(time).toLocaleString()}`;
-        bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
-    }
-}
-
-// Schedule tasks
+// Schedule Signal Generation and Monitoring
 setInterval(generateSignal, 3 * 60 * 1000); // Every 3 minutes
 setInterval(monitorActiveSignal, 1 * 60 * 1000); // Every 1 minute
-setInterval(sendHourlyUpdate, 60 * 60 * 1000); // Every hour
+
+// Periodic Summary Report
+setInterval(() => {
+    const successRate = ((signalHistory.successes / signalHistory.total) * 100 || 0).toFixed(2);
+    const message = `📊 **Signal Summary** 📊\n
+    Total Signals: ${signalHistory.total}\n
+    Successes: ${signalHistory.successes}\n
+    Failures: ${signalHistory.failures}\n
+    Success Rate: ${successRate}%`;
+    bot.sendMessage(channelId, message, { parse_mode: 'Markdown' });
+}, 60 * 60 * 1000); // Every 1 hour
