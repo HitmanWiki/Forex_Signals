@@ -23,22 +23,30 @@ let activeSignal = null;
 
 // Fetch Data
 async function fetchData(symbol, interval) {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&apikey=${apiKey}`;
     try {
+        const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&apikey=${apiKey}&outputsize=200`;
         const response = await axios.get(url);
-        const values = response.data.values || [];
-        return values.map((v) => ({
-            time: new Date(v.datetime),
-            open: parseFloat(v.open),
-            high: parseFloat(v.high),
-            low: parseFloat(v.low),
-            close: parseFloat(v.close),
-        })).reverse();
+
+        if (response.data && response.data.values) {
+            const prices = response.data.values.map((candle) => ({
+                time: new Date(candle.datetime),
+                open: parseFloat(candle.open),
+                high: parseFloat(candle.high),
+                low: parseFloat(candle.low),
+                close: parseFloat(candle.close),
+            }));
+            console.log(`Fetched ${prices.length} candles for ${symbol} (${interval})`);
+            return prices.reverse(); // Return in chronological order
+        } else {
+            console.error(`No data for ${symbol}: ${response.data.message || "Unknown error"}`);
+            return [];
+        }
     } catch (error) {
-        console.error(`Error fetching data: ${error.message}`);
+        console.error(`Error fetching data for ${symbol}: ${error.message}`);
         return [];
     }
 }
+
 
 // Calculate Indicators
 function calculateIndicators(prices) {
