@@ -8,50 +8,47 @@ const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHANNEL_ID; // Replace with your Telegram chat ID
 const bot = new TelegramBot(botToken, { polling: true });
 
-// Configuration
-const symbol = "BTCUSDT"; // Your trading pair
-const interval = "3min"; // Fetch interval
-const limit = 23; // Number of candles to fetch
+// / /Configuration
+const COINEX_API_URL = "https://api.coinex.com/v1/market/kline";
+const symbol = "BTCUSDT";
+const interval = "3min"; // CoinEx API uses intervals like "1min", "3min", "5min"
+const limit = 100; // Number of candles to fetch
+const atrLength = 20; // ATR calculation period
+const shortEmaLength = 9; // Short EMA length
+const longEmaLength = 21; // Long EMA length
 
 // Active Signal Tracking
 let activeSignal = {}; // Object to store active signals for each crypto
 let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
 
-// Parameters
-const atrLength = 14; // ATR Lookback Period
-const emaShortLength = 9; // Short EMA Period
-const emaLongLength = 21; // Long EMA Period
-const cprLength = 15; // CPR Lookback Period
-const riskRewardRatio = 2; // Risk-Reward Ratio
 
 // Fetch candles from CoinGecko
-async function fetchCandles() {
-    try {
-        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
-        const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${symbol}/ohlc`, {
-            params: { vs_currency: "usd", days: "1", interval: interval },
-        });
+try {
+    console.log(`Fetching data for ${symbol} with interval: ${interval}`);
+    const response = await axios.get(COINEX_API_URL, {
+        params: { market: symbol, type: interval, limit: limit },
+    });
+    if (response.data && response.data.data) {
+        const candles = response.data.data.map((candle) => ({
+            time: new Date(candle[0] * 1000),
+            open: parseFloat(candle[1]),
+            close: parseFloat(candle[2]),
+            high: parseFloat(candle[3]),
+            low: parseFloat(candle[4]),
+            volume: parseFloat(candle[5]),
+        }));
 
-        if (response.data && response.data.length > 0) {
-            const candles = response.data.map((candle) => ({
-                time: new Date(candle[0]),
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5] || 0), // Assuming volume is the 6th element; adjust if incorrect
-            }));
-            console.log(`Fetched ${candles.length} candles for ${symbol}`);
-            return candles;
-        } else {
-            console.error("Unexpected response format:", response.data);
-            return [];
-        }
-    } catch (error) {
-        console.error(`Error fetching candles: ${error.message}`);
+        console.log(`Fetched ${candles.length} candles for ${symbol}`);
+        return candles.slice(-limit); // Return the last `limit` candles
+    } else {
+        console.error("Unexpected response format:", response.data);
         return [];
     }
+} catch (error) {
+    console.error(`Error fetching candles: ${error.message}`);
+    return [];
 }
+
 
 
 // Calculate Indicators
@@ -69,12 +66,12 @@ function calculateIndicators(candles) {
 
     const shortEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: emaShortLength,
+        period: shortEmaLength,
     });
 
     const longEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: emaLongLength,
+        period: longEmaLength,
     });
 
     const pivotHigh = Math.max(...highs.slice(-cprLength));
