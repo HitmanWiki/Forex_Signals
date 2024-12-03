@@ -1,5 +1,6 @@
 const axios = require("axios");
 const TelegramBot = require("node-telegram-bot-api");
+const technicalindicators = require("technicalindicators");
 require("dotenv").config();
 
 // Telegram Bot Setup
@@ -9,7 +10,7 @@ const bot = new TelegramBot(botToken, { polling: true });
 
 // Configuration
 const COIN_GECKO_API = "https://api.coingecko.com/api/v3/simple/price";
-const WATCHED_CRYPTOS = ["bitcoin", "ethereum"]; // Replace with your cryptocurrency list
+const WATCHED_CRYPTOS = ["bitcoin"]; // Replace with your cryptocurrency list
 const vsCurrency = "usd"; // Currency for price comparison
 const interval = 180; // Check every 3 minutes (in seconds)
 
@@ -17,74 +18,122 @@ const interval = 180; // Check every 3 minutes (in seconds)
 let activeSignals = {}; // Object to store active signals for each crypto
 let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
 
-// Fetch Prices from CoinGecko
-async function fetchPrices() {
-    try {
-        console.log(`Fetching prices for: ${WATCHED_CRYPTOS.join(", ")}...`);
-        const url = `${COIN_GECKO_API}?ids=${WATCHED_CRYPTOS.join(",")}&vs_currencies=${vsCurrency}`;
-        const response = await axios.get(url);
+// Parameters
+const atrLength = 20; // ATR Lookback Period
+const emaShortLength = 30; // Short EMA Period
+const emaLongLength = 100; // Long EMA Period
+const cprLength = 15; // CPR Lookback Period
+const riskRewardRatio = 2; // Risk-Reward Ratio
 
-        console.log("Fetched Prices:", response.data);
-        return response.data;
+// Fetch candles from CoinGecko
+async function fetchCandles() {
+    try {
+        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
+        const response = await axios.get(COINGECKO_API_URL, {
+            params: { vs_currency: "usd", days: "1", interval: "minute" }, // Fetch 1-day minute-level data
+        });
+
+        if (response.data && response.data.prices) {
+            const prices = response.data.prices.slice(-limit); // Use the latest `limit` candles
+            const candles = prices.map((price, index) => ({
+                time: new Date(price[0]),
+                open: index === 0 ? price[1] : prices[index - 1][1],
+                high: Math.max(price[1], index === 0 ? price[1] : prices[index - 1][1]),
+                low: Math.min(price[1], index === 0 ? price[1] : prices[index - 1][1]),
+                close: price[1],
+                volume: Math.random() * 10, // CoinGecko doesn't provide volume; generate mock data
+            }));
+            console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
+            return candles.reverse(); // Reverse to chronological order
+        } else {
+            console.error("Unexpected response format:", response.data);
+            return [];
+        }
     } catch (error) {
-        console.error("Error fetching data from CoinGecko:", error.message);
-        return {};
+        console.error(`Error fetching candles: ${error.message}`);
+        return [];
     }
+}
+
+// Calculate Indicators
+function calculateIndicators(candles) {
+    const closes = candles.map((c) => c.close);
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
+
+    const atr = technicalindicators.ATR.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: atrLength,
+    });
+
+    const shortEma = technicalindicators.EMA.calculate({
+        values: closes,
+        period: emaShortLength,
+    });
+
+    const longEma = technicalindicators.EMA.calculate({
+        values: closes,
+        period: emaLongLength,
+    });
+
+    const pivotHigh = Math.max(...highs.slice(-cprLength));
+    const pivotLow = Math.min(...lows.slice(-cprLength));
+    const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
+
+    const cprUpper = (pivotHigh + pivotLow) / 2;
+    const cprLower = pivotClose;
+
+    return {
+        atr: atr[atr.length - 1],
+        shortEma: shortEma[shortEma.length - 1],
+        longEma: longEma[longEma.length - 1],
+        cprUpper,
+        cprLower,
+    };
 }
 
 // Generate Signal
-function generateSignal(prices, crypto) {
-    const price = prices[crypto]?.[vsCurrency];
-    if (!price) {
-        console.error(`Price for ${crypto} not found!`);
-        return null;
-    }
+function generateSignal(candles, indicators) {
+    const { atr, shortEma, longEma, cprUpper, cprLower } = indicators;
+    const currentPrice = candles[candles.length - 1].close;
 
-    console.log(`Price for ${crypto}: $${price}`);
+    console.log("=== Indicator Values ===");
+    console.log(`Short EMA: ${shortEma}`);
+    console.log(`Long EMA: ${longEma}`);
+    console.log(`ATR: ${atr}`);
+    console.log(`CPR Upper: ${cprUpper}`);
+    console.log(`CPR Lower: ${cprLower}`);
+    console.log("=== Price Info ===");
+    console.log(`Current Price: ${currentPrice}`);
 
-    // Example Signal Logic: Replace with your own strategy
-    const shortEma = price * 0.99; // Dummy short EMA
-    const longEma = price * 1.01; // Dummy long EMA
+    const longCondition = currentPrice > cprUpper && shortEma > longEma;
+    const shortCondition = currentPrice < cprLower && shortEma < longEma;
 
-    if (shortEma > longEma) {
+    if (longCondition) {
+        console.log("BUY Signal Detected!");
         return {
-            crypto,
             signal: "BUY",
-            price,
-            shortEma,
-            longEma,
-            stopLoss: price * 0.98,
-            takeProfit: price * 1.02,
+            stopLoss: currentPrice - atr,
+            takeProfit: currentPrice + atr * riskRewardRatio,
+            price: currentPrice,
         };
-    } else if (shortEma < longEma) {
+    } else if (shortCondition) {
+        console.log("SELL Signal Detected!");
         return {
-            crypto,
             signal: "SELL",
-            price,
-            shortEma,
-            longEma,
-            stopLoss: price * 1.02,
-            takeProfit: price * 0.98,
+            stopLoss: currentPrice + atr,
+            takeProfit: currentPrice - atr * riskRewardRatio,
+            price: currentPrice,
         };
     }
 
+    console.log("No signal generated.");
     return null;
 }
 
-// Send Signal to Telegram
-function sendSignalToTelegram(signal) {
-    const message = `📊 **New Trading Signal** 📊\n
-Crypto: ${signal.crypto.toUpperCase()}\n
-Signal: ${signal.signal}\n
-Price: $${signal.price.toFixed(2)}\n
-Short EMA: $${signal.shortEma.toFixed(2)}\n
-Long EMA: $${signal.longEma.toFixed(2)}\n
-Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-Take Profit: $${signal.takeProfit.toFixed(2)}`;
-    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-}
-
-// Monitor Active Signals
+// Monitor Active Signal
 function monitorSignals(prices) {
     for (const crypto in activeSignals) {
         const signal = activeSignals[crypto];
@@ -97,30 +146,26 @@ function monitorSignals(prices) {
 
         console.log(`Monitoring Active Signal for ${crypto}: $${price}`);
 
-        if (signal.signal === "BUY") {
-            if (price <= signal.stopLoss) {
-                console.log(`BUY Signal for ${crypto} hit Stop Loss.`);
-                sendSignalOutcome("STOP LOSS HIT", signal);
-                signalStats.failure++;
-                delete activeSignals[crypto];
-            } else if (price >= signal.takeProfit) {
-                console.log(`BUY Signal for ${crypto} hit Take Profit.`);
-                sendSignalOutcome("TAKE PROFIT HIT", signal);
-                signalStats.success++;
-                delete activeSignals[crypto];
-            }
-        } else if (signal.signal === "SELL") {
-            if (price >= signal.stopLoss) {
-                console.log(`SELL Signal for ${crypto} hit Stop Loss.`);
-                sendSignalOutcome("STOP LOSS HIT", signal);
-                signalStats.failure++;
-                delete activeSignals[crypto];
-            } else if (price <= signal.takeProfit) {
-                console.log(`SELL Signal for ${crypto} hit Take Profit.`);
-                sendSignalOutcome("TAKE PROFIT HIT", signal);
-                signalStats.success++;
-                delete activeSignals[crypto];
-            }
+        if (signal.signal === "BUY" && price <= signal.stopLoss) {
+            console.log(`BUY Signal for ${crypto} hit Stop Loss.`);
+            sendSignalOutcome("STOP LOSS HIT", signal);
+            signalStats.failure++;
+            delete activeSignals[crypto];
+        } else if (signal.signal === "BUY" && price >= signal.takeProfit) {
+            console.log(`BUY Signal for ${crypto} hit Take Profit.`);
+            sendSignalOutcome("TAKE PROFIT HIT", signal);
+            signalStats.success++;
+            delete activeSignals[crypto];
+        } else if (signal.signal === "SELL" && price >= signal.stopLoss) {
+            console.log(`SELL Signal for ${crypto} hit Stop Loss.`);
+            sendSignalOutcome("STOP LOSS HIT", signal);
+            signalStats.failure++;
+            delete activeSignals[crypto];
+        } else if (signal.signal === "SELL" && price <= signal.takeProfit) {
+            console.log(`SELL Signal for ${crypto} hit Take Profit.`);
+            sendSignalOutcome("TAKE PROFIT HIT", signal);
+            signalStats.success++;
+            delete activeSignals[crypto];
         }
     }
 }
@@ -133,62 +178,39 @@ Signal: ${signal.signal}\n
 Outcome: ${outcome}\n
 Entry Price: $${signal.price.toFixed(2)}\n
 Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-Take Profit: $${signal.takeProfit.toFixed(2)}\n
-Success Rate: ${(signalStats.success / (signalStats.success + signalStats.failure) * 100).toFixed(2)}%`;
+Take Profit: $${signal.takeProfit.toFixed(2)}`;
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-}
-
-// Send Active Signal Update to Telegram
-function sendActiveSignalStatus() {
-    if (Object.keys(activeSignals).length === 0) {
-        bot.sendMessage(chatId, "No active signals at the moment.");
-        return;
-    }
-
-    let message = `📊 **Active Signal Update** 📊\n`;
-    for (const crypto in activeSignals) {
-        const signal = activeSignals[crypto];
-        message += `
-Crypto: ${signal.crypto.toUpperCase()}\n
-Signal: ${signal.signal}\n
-Entry Price: $${signal.price.toFixed(2)}\n
-Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-Take Profit: $${signal.takeProfit.toFixed(2)}\n`;
-    }
-
-    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-}
-
-// Reset Signals
-function resetSignals() {
-    activeSignals = {};
-    signalStats = { success: 0, failure: 0 };
-    bot.sendMessage(chatId, "All signals have been reset.");
 }
 
 // Main Function
 async function main() {
-    const prices = await fetchPrices();
+    const candles = await fetchCandles();
 
-    for (const crypto of WATCHED_CRYPTOS) {
-        if (!activeSignals[crypto]) {
-            const newSignal = generateSignal(prices, crypto);
-            if (newSignal) {
-                console.log(`New Signal for ${crypto}:`, newSignal);
-                activeSignals[crypto] = newSignal;
-                sendSignalToTelegram(newSignal);
-            }
-        }
+    if (candles.length < limit) {
+        console.log("Not enough data to calculate indicators.");
+        return;
     }
 
-    monitorSignals(prices);
+    const indicators = calculateIndicators(candles);
+
+    const signal = generateSignal(candles, indicators);
+
+    if (signal && !activeSignal) {
+        console.log("New Signal Generated:", signal);
+        activeSignal = signal;
+
+        const message = `📊 **New Trading Signal** 📊\n
+        Signal: ${signal.signal}\n
+        Entry Price: $${signal.price.toFixed(2)}\n
+        Stop Loss: $${signal.stopLoss.toFixed(2)}\n
+        Take Profit: $${signal.takeProfit.toFixed(2)}`;
+        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } else if (signal) {
+        console.log("Signal already active. Waiting for resolution...");
+    }
 }
 
-// Schedule Tasks
-setInterval(main, interval * 1000); // Run every interval seconds
+// Schedule tasks
+setInterval(main, 180 * 1000); // Run every 3 minutes
+setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 1 minute
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
-
-// Handle Telegram Commands
-bot.onText(/\/reset/, () => {
-    resetSignals();
-});
