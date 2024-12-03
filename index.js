@@ -4,7 +4,7 @@ const technicalindicators = require("technicalindicators");
 require("dotenv").config();
 
 // API and Bot Configurations
-const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+const apiKey = process.env.TWELVE_DATA_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
