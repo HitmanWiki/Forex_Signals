@@ -7,13 +7,13 @@ require("dotenv").config();
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 const binanceApiKey = process.env.BINANCE_API_KEY;
-const binanceApiSecret = process.env.BINANCE_API_SECRET;
+const binanceApiUrl = "https://testnet.binance.vision/api/v3";
 
 const bot = new TelegramBot(botToken, { polling: true });
 
-const binanceApiUrl = "https://testnet.binance.vision/api/v3";
 const pair = "BTCUSDT"; // Binance symbol format
 const interval = "3m"; // 3-minute timeframe
+const requiredCandles = 100; // Increase to ensure enough data for all indicators
 const atrLength = 14; // ATR length
 const shortEmaLength = 30; // Short EMA
 const longEmaLength = 100; // Long EMA
@@ -24,13 +24,13 @@ let activeSignal = null;
 let signalHistory = { successes: 0, failures: 0, total: 0 };
 
 // Fetch data from Binance Testnet API
-async function fetchData(symbol, interval) {
+async function fetchData(symbol, interval, limit) {
     try {
         const response = await axios.get(`${binanceApiUrl}/klines`, {
             params: {
                 symbol: symbol,
                 interval: interval,
-                limit: 30, // Fetch 30 candles
+                limit: limit, // Fetch more candles
             },
             headers: {
                 "X-MBX-APIKEY": binanceApiKey,
@@ -60,53 +60,63 @@ function calculateIndicators(prices) {
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
 
-    // ATR Calculation
-    const atr = technicalindicators.ATR.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: atrLength,
-    });
+    try {
+        // ATR Calculation
+        const atr = technicalindicators.ATR.calculate({
+            high: highs,
+            low: lows,
+            close: closes,
+            period: atrLength,
+        });
 
-    // EMA Calculations
-    const shortEma = technicalindicators.EMA.calculate({
-        values: closes,
-        period: shortEmaLength,
-    });
-    const longEma = technicalindicators.EMA.calculate({
-        values: closes,
-        period: longEmaLength,
-    });
+        // EMA Calculations
+        const shortEma = technicalindicators.EMA.calculate({
+            values: closes,
+            period: shortEmaLength,
+        });
+        const longEma = technicalindicators.EMA.calculate({
+            values: closes,
+            period: longEmaLength,
+        });
 
-    // CPR Calculation
-    const pivotHigh = Math.max(...highs.slice(-cprLength));
-    const pivotLow = Math.min(...lows.slice(-cprLength));
-    const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
+        // CPR Calculation
+        const pivotHigh = Math.max(...highs.slice(-cprLength));
+        const pivotLow = Math.min(...lows.slice(-cprLength));
+        const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
 
-    const cprUpper = (pivotHigh + pivotLow) / 2;
-    const cprLower = pivotClose;
+        const cprUpper = (pivotHigh + pivotLow) / 2;
+        const cprLower = pivotClose;
 
-    return {
-        shortEma: shortEma[shortEma.length - 1],
-        longEma: longEma[longEma.length - 1],
-        atr: atr[atr.length - 1],
-        cprUpper,
-        cprLower,
-    };
+        return {
+            shortEma: shortEma[shortEma.length - 1],
+            longEma: longEma[longEma.length - 1],
+            atr: atr[atr.length - 1],
+            cprUpper,
+            cprLower,
+        };
+    } catch (error) {
+        console.error("Error calculating indicators:", error.message);
+        return null;
+    }
 }
 
 // Generate signals
 async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
-    const prices = await fetchData(pair, interval);
+    const prices = await fetchData(pair, interval, requiredCandles);
 
     if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength)) {
-        console.log(`Not enough data for ${pair}`);
+        console.log(`Not enough data for ${pair}. Fetched ${prices.length} candles.`);
         return;
     }
 
-    const { shortEma, longEma, atr, cprUpper, cprLower } = calculateIndicators(prices);
+    const indicators = calculateIndicators(prices);
+    if (!indicators) {
+        console.log("Indicators could not be calculated.");
+        return;
+    }
 
+    const { shortEma, longEma, atr, cprUpper, cprLower } = indicators;
     const currentPrice = prices[prices.length - 1].close;
 
     let signal = "HOLD";
@@ -148,7 +158,7 @@ async function generateSignal() {
 // Monitor active signals
 async function monitorSignal() {
     if (!activeSignal) return;
-    const prices = await fetchData(pair, interval);
+    const prices = await fetchData(pair, interval, requiredCandles);
     const currentPrice = prices[prices.length - 1]?.close;
 
     if (!currentPrice) return;
