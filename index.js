@@ -115,6 +115,7 @@ function generateSignal(candles, indicators) {
     if (longCondition) {
         console.log("BUY Signal Detected!");
         return {
+            crypto: symbol,
             signal: "BUY",
             stopLoss: currentPrice - atr,
             takeProfit: currentPrice + atr * riskRewardRatio,
@@ -123,6 +124,7 @@ function generateSignal(candles, indicators) {
     } else if (shortCondition) {
         console.log("SELL Signal Detected!");
         return {
+            crypto: symbol,
             signal: "SELL",
             stopLoss: currentPrice + atr,
             takeProfit: currentPrice - atr * riskRewardRatio,
