@@ -4,7 +4,7 @@ const technicalindicators = require("technicalindicators");
 require("dotenv").config();
 
 // API and Bot Configurations
-const apiKey = process.env.TWELVE_DATA_API_KEY;
+const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
@@ -24,9 +24,7 @@ let activeSignal = null; // Track active trades
 // Fetch data from Twelve Data API
 async function fetchData(pair, interval) {
     try {
-        const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(
-            pair
-        )}&interval=${interval}&apikey=${apiKey}`;
+        const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${interval}&apikey=${apiKey}&datatype=json`;
         const response = await axios.get(url);
 
         if (response.data && response.data.values) {
