@@ -15,7 +15,7 @@ const vsCurrency = "usd"; // Currency for price comparison
 const interval = 180; // Check every 3 minutes (in seconds)
 
 // Active Signal Tracking
-let activeSignals = {}; // Object to store active signals for each crypto
+let activeSignal = {}; // Object to store active signals for each crypto
 let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
 
 // Parameters
@@ -134,39 +134,39 @@ function generateSignal(candles, indicators) {
 }
 
 // Monitor Active Signal
-function monitorSignals(prices) {
-    for (const crypto in activeSignals) {
-        const signal = activeSignals[crypto];
-        const price = prices[crypto]?.[vsCurrency];
+// Monitor active signal
+async function monitorSignal() {
+    if (!activeSignal) return;
 
-        if (!price) {
-            console.error(`Price for ${crypto} not found during monitoring!`);
-            continue;
-        }
+    const candles = await fetchCandles();
+    if (candles.length < limit) return;
 
-        console.log(`Monitoring Active Signal for ${crypto}: $${price}`);
+    const currentPrice = candles[candles.length - 1].close;
 
-        if (signal.signal === "BUY" && price <= signal.stopLoss) {
-            console.log(`BUY Signal for ${crypto} hit Stop Loss.`);
-            sendSignalOutcome("STOP LOSS HIT", signal);
-            signalStats.failure++;
-            delete activeSignals[crypto];
-        } else if (signal.signal === "BUY" && price >= signal.takeProfit) {
-            console.log(`BUY Signal for ${crypto} hit Take Profit.`);
-            sendSignalOutcome("TAKE PROFIT HIT", signal);
-            signalStats.success++;
-            delete activeSignals[crypto];
-        } else if (signal.signal === "SELL" && price >= signal.stopLoss) {
-            console.log(`SELL Signal for ${crypto} hit Stop Loss.`);
-            sendSignalOutcome("STOP LOSS HIT", signal);
-            signalStats.failure++;
-            delete activeSignals[crypto];
-        } else if (signal.signal === "SELL" && price <= signal.takeProfit) {
-            console.log(`SELL Signal for ${crypto} hit Take Profit.`);
-            sendSignalOutcome("TAKE PROFIT HIT", signal);
-            signalStats.success++;
-            delete activeSignals[crypto];
-        }
+    if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
+        console.log("BUY trade stopped out.");
+        sendSignalOutcome("STOP LOSS HIT", activeSignal);
+        signalStats.totalSignals++;
+        signalStats.failureCount++;
+        activeSignal = null;
+    } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
+        console.log("BUY trade hit TP.");
+        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+        signalStats.totalSignals++;
+        signalStats.successCount++;
+        activeSignal = null;
+    } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
+        console.log("SELL trade stopped out.");
+        sendSignalOutcome("STOP LOSS HIT", activeSignal);
+        signalStats.totalSignals++;
+        signalStats.failureCount++;
+        activeSignal = null;
+    } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
+        console.log("SELL trade hit TP.");
+        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+        signalStats.totalSignals++;
+        signalStats.successCount++;
+        activeSignal = null;
     }
 }
 
@@ -179,6 +179,28 @@ Outcome: ${outcome}\n
 Entry Price: $${signal.price.toFixed(2)}\n
 Stop Loss: $${signal.stopLoss.toFixed(2)}\n
 Take Profit: $${signal.takeProfit.toFixed(2)}`;
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+}
+
+function sendActiveSignalStatus() {
+    if (!activeSignal) {
+        bot.sendMessage(chatId, "No active signal at the moment.");
+        return;
+    }
+    const message = `📊 **Active Signal Update** 📊\n
+    Signal: ${activeSignal.signal}\n
+    Entry Price: $${activeSignal.price.toFixed(2)}\n
+    Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
+    Take Profit: $${activeSignal.takeProfit.toFixed(2)}\n
+    Success Ratio: ${(successCount / (successCount + failureCount) * 100).toFixed(2)}%`;
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+}
+function sendSignalStats() {
+    const message = `📊 **Signal Performance Stats** 📊\n
+    Total Signals: ${signalStats.totalSignals}\n
+    Success Count: ${signalStats.successCount}\n
+    Failure Count: ${signalStats.failureCount}\n
+    Success Rate: ${signalStats.successRate()}%`;
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
 
@@ -211,6 +233,8 @@ async function main() {
 }
 
 // Schedule tasks
+// Schedule tasks
 setInterval(main, 180 * 1000); // Run every 3 minutes
 setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 1 minute
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
+setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
