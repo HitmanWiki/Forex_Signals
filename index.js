@@ -3,21 +3,23 @@ const TelegramBot = require("node-telegram-bot-api");
 const technicalindicators = require("technicalindicators");
 require("dotenv").config();
 
-// Bot and API Setup
-const apiKey = process.env.TWELVE_DATA_API_KEY;
+// API and Bot Configurations
+const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
 const bot = new TelegramBot(botToken, { polling: true });
 
-const pair = "BTC/USD"; // Focused on BTC/USD
-const interval = "1min"; // 1-minute timeframe
-const atrLength = 14; // ATR length
-const shortEmaLength = 9; // Short EMA
-const longEmaLength = 21; // Long EMA
-const rsiLength = 14; // RSI length
+const pair = "BTC/USD"; // Pair
+const interval = "1min"; // Timeframe (can change to supported Alpha Vantage intervals)
+const atrLength = 20; // ATR length
+const cprLength = 15; // CPR lookback period
+const emaShortLength = 30; // Short EMA
+const emaLongLength = 100; // Long EMA
+const riskRewardRatio = 2.0; // Risk-Reward Ratio
+const useATR = true; // ATR-based stop-loss/take-profit
 
-let activeSignal = null; // Track active trade
+let activeSignal = null; // Track active trades
 
 // Fetch data from Twelve Data API
 async function fetchData(pair, interval) {
@@ -50,138 +52,95 @@ async function fetchData(pair, interval) {
     }
 }
 
-/// Calculate indicators
+// Calculate Indicators
 function calculateIndicators(prices) {
     const closes = prices.map((p) => p.close);
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
 
-    console.log("Calculating indicators...");
-    console.log("Closes:", closes);
-    console.log("Highs:", highs);
-    console.log("Lows:", lows);
+    // ATR
+    const atr = technicalindicators.ATR.calculate({ high: highs, low: lows, close: closes, period: atrLength });
 
-    // ATR Calculation
-    const atr = technicalindicators.ATR.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: atrLength,
-    });
-    console.log("ATR:", atr);
+    // EMAs
+    const shortEma = technicalindicators.EMA.calculate({ values: closes, period: emaShortLength });
+    const longEma = technicalindicators.EMA.calculate({ values: closes, period: emaLongLength });
 
-    // EMA Calculations
-    const shortEma = technicalindicators.EMA.calculate({
-        values: closes,
-        period: shortEmaLength,
-    });
-    const longEma = technicalindicators.EMA.calculate({
-        values: closes,
-        period: longEmaLength,
-    });
-    console.log("Short EMA:", shortEma);
-    console.log("Long EMA:", longEma);
+    // CPR
+    const pivotHigh = Math.max(...highs.slice(-cprLength));
+    const pivotLow = Math.min(...lows.slice(-cprLength));
+    const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
 
-    // RSI Calculation
-    const rsi = technicalindicators.RSI.calculate({ values: closes, period: rsiLength });
-    console.log("RSI:", rsi);
-
-
+    const cprUpper = (pivotHigh + pivotLow) / 2;
+    const cprLower = pivotClose;
 
     return {
         shortEma: shortEma[shortEma.length - 1],
         longEma: longEma[longEma.length - 1],
-        rsi: rsi[rsi.length - 1],
-
         atr: atr[atr.length - 1],
+        cprUpper,
+        cprLower,
     };
 }
 
+// Generate Signal
 async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
-    const prices = await fetchData(pair, interval);
+    const prices = await fetchData(pair.split("/").join(""), interval); // Replace '/' for Alpha Vantage format
 
-    if (!prices || prices.length < Math.max(shortEmaLength, longEmaLength, atrLength)) {
-        console.log(`Not enough data for ${pair}`);
+    if (!prices || prices.length < Math.max(emaLongLength, atrLength)) {
+        console.log("Not enough data to calculate indicators.");
         return;
     }
 
-    const { shortEma, longEma, rsi, atr } = calculateIndicators(prices);
-
+    const { shortEma, longEma, atr, cprUpper, cprLower } = calculateIndicators(prices);
     const currentPrice = prices[prices.length - 1].close;
-    const recentHigh = Math.max(...prices.slice(-10).map((p) => p.high));
-    const recentLow = Math.min(...prices.slice(-10).map((p) => p.low));
 
-    // Log the indicator and price information for debugging
     console.log("=== Indicator Values ===");
-    console.log("Short EMA:", shortEma);
-    console.log("Long EMA:", longEma);
-    console.log("RSI:", rsi);
-    console.log("ATR:", atr);
-    console.log("=== Price Info ===");
-    console.log("Current Price:", currentPrice);
-    console.log("Recent High:", recentHigh);
-    console.log("Recent Low:", recentLow);
+    console.log(`Short EMA: ${shortEma}`);
+    console.log(`Long EMA: ${longEma}`);
+    console.log(`ATR: ${atr}`);
+    console.log(`CPR Upper: ${cprUpper}`);
+    console.log(`CPR Lower: ${cprLower}`);
+    console.log(`Current Price: ${currentPrice}`);
 
     let signal = "HOLD";
     let stopLoss, takeProfit;
 
-    // Adjusted Buy Condition
-    if (
-        currentPrice <= (recentLow + 0.1 * atr) &&
-        shortEma > (longEma + 0.5 * atr) &&
-        rsi < 30
-    ) {
+    // Long Condition
+    if (currentPrice > cprUpper && shortEma > longEma) {
         signal = "BUY";
-        stopLoss = currentPrice - atr * 1.5;
-        takeProfit = currentPrice + atr * 2;
-
-        // Log the conditions that triggered the BUY signal
-        console.log("BUY Signal Triggered");
-        console.log("Condition 1: Current Price <= Recent Low + 0.1 * ATR");
-        console.log("Condition 2: Short EMA > Long EMA + 0.5 * ATR");
-        console.log("Condition 3: RSI < 30");
+        stopLoss = currentPrice - (useATR ? atr : 50); // Example fixed fallback
+        takeProfit = currentPrice + (useATR ? atr * riskRewardRatio : 100);
     }
 
-    // Adjusted Sell Condition
-    if (
-        currentPrice >= (recentHigh - 0.1 * atr) &&
-        shortEma < (longEma - 0.5 * atr) &&
-        rsi > 70
-    ) {
+    // Short Condition
+    if (currentPrice < cprLower && shortEma < longEma) {
         signal = "SELL";
-        stopLoss = currentPrice + atr * 1.5;
-        takeProfit = currentPrice - atr * 2;
-
-        // Log the conditions that triggered the SELL signal
-        console.log("SELL Signal Triggered");
-        console.log("Condition 1: Current Price >= Recent High - 0.1 * ATR");
-        console.log("Condition 2: Short EMA < Long EMA - 0.5 * ATR");
-        console.log("Condition 3: RSI > 70");
+        stopLoss = currentPrice + (useATR ? atr : 50);
+        takeProfit = currentPrice - (useATR ? atr * riskRewardRatio : 100);
     }
 
     if (signal !== "HOLD") {
         const message = `📊 **Trading Signal for ${pair}** 📊\n
-    Signal: ${signal}\n
-    Current Price: $${currentPrice.toFixed(2)}\n
-    RSI: ${rsi?.toFixed(2) || "N/A"}\n
-    ATR: $${atr?.toFixed(2) || "N/A"}\n
-    Stop Loss: $${stopLoss.toFixed(2)}\n
-    Take Profit: $${takeProfit.toFixed(2)}\n`;
+        Signal: ${signal}\n
+        Current Price: $${currentPrice.toFixed(2)}\n
+        ATR: $${atr?.toFixed(2) || "N/A"}\n
+        CPR Upper: $${cprUpper.toFixed(2)}\n
+        CPR Lower: $${cprLower.toFixed(2)}\n
+        Stop Loss: $${stopLoss.toFixed(2)}\n
+        Take Profit: $${takeProfit.toFixed(2)}\n`;
 
         bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
         activeSignal = { signal, stopLoss, takeProfit };
-
-        console.log("Signal Sent to Telegram:", signal);
     } else {
         console.log("No signal generated.");
     }
 }
 
-// Monitor active signals
+// Monitor Active Signal
 async function monitorSignal() {
     if (!activeSignal) return;
-    const prices = await fetchData(pair, interval);
+    const prices = await fetchData(pair.split("/").join(""), interval);
     const currentPrice = prices[prices.length - 1]?.close;
 
     if (!currentPrice) return;
@@ -201,6 +160,6 @@ async function monitorSignal() {
     }
 }
 
-// Schedule signal generation and monitoring
-setInterval(generateSignal, 1 * 60 * 1000); // Every 1 minute
-setInterval(monitorSignal, 30 * 1000); // Every 30 seconds
+// Schedule Tasks
+setInterval(generateSignal, 1 * 60 * 1000); // Generate signals every minute
+setInterval(monitorSignal, 30 * 1000); // Monitor active signals every 30 seconds
