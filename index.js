@@ -1,61 +1,41 @@
-const axios = require("axios");
-const TelegramBot = require("node-telegram-bot-api");
-const technicalindicators = require("technicalindicators");
-require("dotenv").config();
+const axios = require('axios');
+const TelegramBot = require('node-telegram-bot-api');
+const technicalindicators = require('technicalindicators');
+require('dotenv').config();
 
-// API and Bot Configurations
-const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+// API and Bot Configuration
+const apiKey = process.env.TWELVE_DATA_API_KEY;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
 const bot = new TelegramBot(botToken, { polling: true });
+const pair = "BTC/USD";
+const interval = "1min";
 
-const pair = "BTC/USD"; // Pair
-const interval = "1min"; // Timeframe
-const atrLength = 20; // ATR length
-const cprLength = 15; // CPR lookback period
-const emaShortLength = 30; // Short EMA
-const emaLongLength = 100; // Long EMA
-const riskRewardRatio = 2.0; // Risk-Reward Ratio
-const useATR = true; // ATR-based stop-loss/take-profit
+// Strategy Parameters
+const atrLength = 20;
+const cprLength = 15;
+const emaShortLength = 30;
+const emaLongLength = 100;
+const riskRewardRatio = 2.0;
 
-let activeSignal = null; // Track active trades
+let activeSignal = null;
 
-// Map trading pairs to Alpha Vantage symbols
-const symbolMap = {
-    "BTC/USD": "BTCUSD",
-};
-
-// Fetch Data from Alpha Vantage
+// Fetch Data
 async function fetchData(symbol, interval) {
-    const mappedSymbol = symbolMap[symbol]; // Map pair to Alpha Vantage format
-    if (!mappedSymbol) {
-        console.error(`Symbol mapping not found for: ${symbol}`);
-        return [];
-    }
-
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&apikey=${apiKey}`;
     try {
-        const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${mappedSymbol}&interval=${interval}&apikey=${apiKey}&datatype=json`;
         const response = await axios.get(url);
-
-        const timeSeriesKey = `Time Series (${interval})`;
-        if (response.data[timeSeriesKey]) {
-            const data = response.data[timeSeriesKey];
-            const prices = Object.keys(data).map((timestamp) => ({
-                time: new Date(timestamp),
-                open: parseFloat(data[timestamp]["1. open"]),
-                high: parseFloat(data[timestamp]["2. high"]),
-                low: parseFloat(data[timestamp]["3. low"]),
-                close: parseFloat(data[timestamp]["4. close"]),
-            }));
-            console.log(`Fetched ${prices.length} candles for ${symbol} (${interval})`);
-            return prices.reverse(); // Return data in chronological order
-        } else {
-            console.error(`Error fetching data: ${response.data["Note"] || "Unknown error"}`);
-            return [];
-        }
+        const values = response.data.values || [];
+        return values.map((v) => ({
+            time: new Date(v.datetime),
+            open: parseFloat(v.open),
+            high: parseFloat(v.high),
+            low: parseFloat(v.low),
+            close: parseFloat(v.close),
+        })).reverse();
     } catch (error) {
-        console.error(`Error fetching data for ${symbol}: ${error.message}`);
+        console.error(`Error fetching data: ${error.message}`);
         return [];
     }
 }
@@ -66,77 +46,63 @@ function calculateIndicators(prices) {
     const highs = prices.map((p) => p.high);
     const lows = prices.map((p) => p.low);
 
-    // ATR
     const atr = technicalindicators.ATR.calculate({ high: highs, low: lows, close: closes, period: atrLength });
+    const emaShort = technicalindicators.EMA.calculate({ values: closes, period: emaShortLength });
+    const emaLong = technicalindicators.EMA.calculate({ values: closes, period: emaLongLength });
 
-    // EMAs
-    const shortEma = technicalindicators.EMA.calculate({ values: closes, period: emaShortLength });
-    const longEma = technicalindicators.EMA.calculate({ values: closes, period: emaLongLength });
-
-    // CPR
     const pivotHigh = Math.max(...highs.slice(-cprLength));
     const pivotLow = Math.min(...lows.slice(-cprLength));
-    const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
-
-    const cprUpper = (pivotHigh + pivotLow) / 2;
-    const cprLower = pivotClose;
+    const pivotClose = closes.slice(-cprLength).reduce((a, b) => a + b, 0) / cprLength;
 
     return {
-        shortEma: shortEma[shortEma.length - 1],
-        longEma: longEma[longEma.length - 1],
         atr: atr[atr.length - 1],
-        cprUpper,
-        cprLower,
+        emaShort: emaShort[emaShort.length - 1],
+        emaLong: emaLong[emaLong.length - 1],
+        cprUpper: (pivotHigh + pivotLow) / 2,
+        cprLower: pivotClose,
     };
 }
 
 // Generate Signal
 async function generateSignal() {
-    console.log(`Generating signal for ${pair}`);
-    const prices = await fetchData(pair, interval); // Fetch data with mapped symbol
+    const prices = await fetchData(pair, interval);
 
-    if (!prices || prices.length < Math.max(emaLongLength, atrLength)) {
+    if (prices.length < Math.max(atrLength, emaLongLength, cprLength)) {
         console.log("Not enough data to calculate indicators.");
         return;
     }
 
-    const { shortEma, longEma, atr, cprUpper, cprLower } = calculateIndicators(prices);
+    const { atr, emaShort, emaLong, cprUpper, cprLower } = calculateIndicators(prices);
     const currentPrice = prices[prices.length - 1].close;
-
-    console.log("=== Indicator Values ===");
-    console.log(`Short EMA: ${shortEma}`);
-    console.log(`Long EMA: ${longEma}`);
-    console.log(`ATR: ${atr}`);
-    console.log(`CPR Upper: ${cprUpper}`);
-    console.log(`CPR Lower: ${cprLower}`);
-    console.log(`Current Price: ${currentPrice}`);
 
     let signal = "HOLD";
     let stopLoss, takeProfit;
 
     // Long Condition
-    if (currentPrice > cprUpper && shortEma > longEma) {
+    if (currentPrice > cprUpper && emaShort > emaLong) {
         signal = "BUY";
-        stopLoss = currentPrice - (useATR ? atr : 50); // Example fixed fallback
-        takeProfit = currentPrice + (useATR ? atr * riskRewardRatio : 100);
+        stopLoss = currentPrice - atr;
+        takeProfit = currentPrice + atr * riskRewardRatio;
     }
 
     // Short Condition
-    if (currentPrice < cprLower && shortEma < longEma) {
+    if (currentPrice < cprLower && emaShort < emaLong) {
         signal = "SELL";
-        stopLoss = currentPrice + (useATR ? atr : 50);
-        takeProfit = currentPrice - (useATR ? atr * riskRewardRatio : 100);
+        stopLoss = currentPrice + atr;
+        takeProfit = currentPrice - atr * riskRewardRatio;
     }
 
     if (signal !== "HOLD") {
-        const message = `📊 **Trading Signal for ${pair}** 📊\n
+        const message = `📊 **Trading Signal** 📊\n
         Signal: ${signal}\n
-        Current Price: $${currentPrice.toFixed(2)}\n
-        ATR: $${atr?.toFixed(2) || "N/A"}\n
-        CPR Upper: $${cprUpper.toFixed(2)}\n
-        CPR Lower: $${cprLower.toFixed(2)}\n
-        Stop Loss: $${stopLoss.toFixed(2)}\n
-        Take Profit: $${takeProfit.toFixed(2)}\n`;
+        Current Price: $${currentPrice}\n
+        ATR: $${atr}\n
+        EMA Short: $${emaShort}\n
+        EMA Long: $${emaLong}\n
+        CPR Upper: $${cprUpper}\n
+        CPR Lower: $${cprLower}\n
+        Stop Loss: $${stopLoss}\n
+        Take Profit: $${takeProfit}\n`;
 
         bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
         activeSignal = { signal, stopLoss, takeProfit };
@@ -148,6 +114,7 @@ async function generateSignal() {
 // Monitor Active Signal
 async function monitorSignal() {
     if (!activeSignal) return;
+
     const prices = await fetchData(pair, interval);
     const currentPrice = prices[prices.length - 1]?.close;
 
@@ -160,14 +127,14 @@ async function monitorSignal() {
         console.log("SELL trade stopped out.");
         activeSignal = null;
     } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
-        console.log("BUY trade hit TP.");
+        console.log("BUY trade hit Take Profit.");
         activeSignal = null;
     } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
-        console.log("SELL trade hit TP.");
+        console.log("SELL trade hit Take Profit.");
         activeSignal = null;
     }
 }
 
-// Schedule Tasks
-setInterval(generateSignal, 1 * 60 * 1000); // Generate signals every minute
-setInterval(monitorSignal, 30 * 1000); // Monitor active signals every 30 seconds
+// Schedule Signal Generation and Monitoring
+setInterval(generateSignal, 1 * 60 * 1000); // Every 5 minutes
+setInterval(monitorSignal, 30 * 1000); // Every 30 seconds
