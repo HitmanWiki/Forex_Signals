@@ -16,6 +16,8 @@ const limit = 100; // Number of candles to fetch
 const atrLength = 20; // ATR calculation period
 const shortEmaLength = 9; // Short EMA length
 const longEmaLength = 21; // Long EMA length
+const cprLength = 15; // CPR Lookback Period
+
 
 // Active Signal Tracking
 let activeSignal = {}; // Object to store active signals for each crypto
@@ -204,6 +206,14 @@ function sendSignalStats() {
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
 
+// Reset function
+function reset() {
+    console.log("Resetting active signal and signal stats...");
+    activeSignal = null;
+    signalStats = { wins: 0, losses: 0 };
+    console.log("All signals and stats have been reset.");
+}
+
 // Main Function
 async function main() {
     const candles = await fetchCandles();
@@ -231,6 +241,14 @@ async function main() {
         console.log("Signal already active. Waiting for resolution...");
     }
 }
+
+
+// Example of a reset trigger (Telegram Bot command)
+bot.onText(/\/reset/, (msg) => {
+    const chatId = msg.chat.id;
+    reset();
+    bot.sendMessage(chatId, "All signals and stats have been reset.");
+});
 
 // Schedule tasks
 // Schedule tasks
