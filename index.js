@@ -1,31 +1,27 @@
 const axios = require("axios");
-const TelegramBot = require("node-telegram-bot-api");
 const technicalindicators = require("technicalindicators");
+const TelegramBot = require("node-telegram-bot-api");
 require("dotenv").config();
 
-// Bot and API Configuration
+// Configuration
+const API_URL = "https://api.coinex.com/v1/market/kline";
+const symbol = "BTCUSDT";
+const interval = "1min";
+const limit = 150;
+
+// Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const chatId = process.env.TELEGRAM_CHAT_ID; // Replace with your Telegram chat ID
 const bot = new TelegramBot(botToken, { polling: true });
-const channelId = process.env.TELEGRAM_CHANNEL_ID;
 
-const pair = "BTCUSDT"; // Target market
-const interval = "1min"; // Interval for candlesticks
-const atrLength = 14; // ATR period
-const shortEmaLength = 9; // Short EMA
-const longEmaLength = 21; // Long EMA
-let activeSignal = null;
+let activeSignal = null; // Stores the current active signal
 
-// Fetch Candles from Coinex
-async function fetchCandles(symbol, interval = "1min", limit = 150) {
+// Fetch candles from Coinex
+async function fetchCandles() {
     try {
-        const url = `https://api.coinex.com/v1/market/kline`;
-        const formattedSymbol = symbol.replace("BTCUSDT", "BTC_USDT");
-        const response = await axios.get(url, {
-            params: {
-                market: formattedSymbol,
-                type: interval,
-                limit: limit,
-            },
+        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
+        const response = await axios.get(API_URL, {
+            params: { market: symbol, type: interval, limit: limit },
         });
 
         if (response.data && response.data.data) {
@@ -38,111 +34,159 @@ async function fetchCandles(symbol, interval = "1min", limit = 150) {
                 volume: parseFloat(candle[5]),
             }));
             console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
-            return candles.reverse();
+            return candles.reverse(); // Reverse to chronological order
         } else {
-            console.error(`Unexpected response format`, response.data);
+            console.error("Unexpected response format:", response.data);
             return [];
         }
     } catch (error) {
         console.error(`Error fetching candles: ${error.message}`);
+        if (error.response) console.error("Response Data:", error.response.data);
         return [];
     }
 }
 
-// Calculate Indicators
-function calculateIndicators(prices) {
-    const closes = prices.map((p) => p.close);
-    const highs = prices.map((p) => p.high);
-    const lows = prices.map((p) => p.low);
+// Calculate indicators
+function calculateIndicators(candles) {
+    const closes = candles.map((c) => c.close);
+    const highs = candles.map((c) => c.high);
+    const lows = candles.map((c) => c.low);
 
     const atr = technicalindicators.ATR.calculate({
         high: highs,
         low: lows,
         close: closes,
-        period: atrLength,
+        period: 14,
     });
 
     const shortEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: shortEmaLength,
+        period: 30,
     });
 
     const longEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: longEmaLength,
+        period: 100,
     });
 
     return {
+        atr: atr[atr.length - 1],
         shortEma: shortEma[shortEma.length - 1],
         longEma: longEma[longEma.length - 1],
-        atr: atr[atr.length - 1],
     };
 }
 
-// Generate Trading Signal
-async function generateSignal() {
-    console.log(`Generating signal for ${pair}...`);
-    const candles = await fetchCandles(pair, interval, 150);
+// Generate a signal
+function generateSignal(candles, indicators) {
+    const { shortEma, longEma, atr } = indicators;
+    const currentPrice = candles[candles.length - 1].close;
 
-    if (candles.length < Math.max(shortEmaLength, longEmaLength, atrLength)) {
+    const longCondition = currentPrice > shortEma && shortEma > longEma;
+    const shortCondition = currentPrice < shortEma && shortEma < longEma;
+
+    if (longCondition) {
+        console.log("BUY Signal Detected!");
+        return {
+            signal: "BUY",
+            stopLoss: currentPrice - atr,
+            takeProfit: currentPrice + 2 * atr,
+            price: currentPrice,
+        };
+    } else if (shortCondition) {
+        console.log("SELL Signal Detected!");
+        return {
+            signal: "SELL",
+            stopLoss: currentPrice + atr,
+            takeProfit: currentPrice - 2 * atr,
+            price: currentPrice,
+        };
+    }
+    console.log("No signal generated.");
+    return null;
+}
+
+// Monitor active signal
+async function monitorSignal() {
+    if (!activeSignal) return;
+
+    const candles = await fetchCandles();
+    if (candles.length < limit) return;
+
+    const currentPrice = candles[candles.length - 1].close;
+
+    if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
+        console.log("BUY trade stopped out.");
+        sendSignalOutcome("STOP LOSS HIT", activeSignal);
+        activeSignal = null;
+    } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
+        console.log("BUY trade hit TP.");
+        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+        activeSignal = null;
+    } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
+        console.log("SELL trade stopped out.");
+        sendSignalOutcome("STOP LOSS HIT", activeSignal);
+        activeSignal = null;
+    } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
+        console.log("SELL trade hit TP.");
+        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+        activeSignal = null;
+    }
+}
+
+// Send signal outcome to Telegram
+function sendSignalOutcome(outcome, signal) {
+    const message = `📊 **Signal Outcome** 📊\n
+    Signal: ${signal.signal}\n
+    Outcome: ${outcome}\n
+    Entry Price: $${signal.price.toFixed(2)}\n
+    Stop Loss: $${signal.stopLoss.toFixed(2)}\n
+    Take Profit: $${signal.takeProfit.toFixed(2)}`;
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+}
+
+// Send active signal status every hour
+function sendActiveSignalStatus() {
+    if (!activeSignal) {
+        bot.sendMessage(chatId, "No active signal at the moment.");
+        return;
+    }
+    const message = `📊 **Active Signal Update** 📊\n
+    Signal: ${activeSignal.signal}\n
+    Entry Price: $${activeSignal.price.toFixed(2)}\n
+    Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
+    Take Profit: $${activeSignal.takeProfit.toFixed(2)}`;
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+}
+
+// Main signal generation loop
+async function main() {
+    const candles = await fetchCandles();
+
+    if (candles.length < 100) {
         console.log("Not enough data to calculate indicators.");
         return;
     }
 
-    const { shortEma, longEma, atr } = calculateIndicators(candles);
-    const currentPrice = candles[candles.length - 1].close;
-    const recentHigh = Math.max(...candles.slice(-10).map((c) => c.high));
-    const recentLow = Math.min(...candles.slice(-10).map((c) => c.low));
+    const indicators = calculateIndicators(candles);
 
-    let signal = "HOLD";
-    let stopLoss, takeProfit;
+    const signal = generateSignal(candles, indicators);
 
-    if (currentPrice > recentHigh && shortEma > longEma) {
-        signal = "BUY";
-        stopLoss = currentPrice - atr * 1.5;
-        takeProfit = currentPrice + atr * 2;
-    } else if (currentPrice < recentLow && shortEma < longEma) {
-        signal = "SELL";
-        stopLoss = currentPrice + atr * 1.5;
-        takeProfit = currentPrice - atr * 2;
-    }
+    if (signal && !activeSignal) {
+        console.log("New Signal Generated:", signal);
+        activeSignal = signal;
 
-    if (signal !== "HOLD") {
-        const message = `📊 **Trading Signal for ${pair}** 📊\n
-        Signal: ${signal}\n
-        Current Price: $${currentPrice.toFixed(2)}\n
-        Stop Loss: $${stopLoss.toFixed(2)}\n
-        Take Profit: $${takeProfit.toFixed(2)}\n`;
-        bot.sendMessage(channelId, message, { parse_mode: "Markdown" });
-        activeSignal = { signal, stopLoss, takeProfit };
-    } else {
-        console.log("No signal generated.");
+        const message = `📊 **New Trading Signal** 📊\n
+        Signal: ${signal.signal}\n
+        Entry Price: $${signal.price.toFixed(2)}\n
+        Stop Loss: $${signal.stopLoss.toFixed(2)}\n
+        Take Profit: $${signal.takeProfit.toFixed(2)}`;
+        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } else if (signal) {
+        console.log("Signal already active. Waiting for resolution...");
     }
 }
 
-// Monitor Active Signal
-async function monitorSignal() {
-    if (!activeSignal) return;
-    const candles = await fetchCandles(pair, interval, 10);
-    const currentPrice = candles[candles.length - 1]?.close;
-
-    if (!currentPrice) return;
-
-    if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
-        console.log("BUY trade stopped out.");
-        activeSignal = null;
-    } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
-        console.log("SELL trade stopped out.");
-        activeSignal = null;
-    } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
-        console.log("BUY trade hit Take Profit.");
-        activeSignal = null;
-    } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
-        console.log("SELL trade hit Take Profit.");
-        activeSignal = null;
-    }
-}
-
-// Run Bot
-setInterval(generateSignal, 5 * 60 * 1000); // Every 5 minutes
-setInterval(monitorSignal, 1 * 60 * 1000); // Every 1 minute
+// Schedule tasks
+setInterval(main, 60 * 1000); // Run every minute
+setInterval(monitorSignal, 30 * 1000); // Monitor active signal every 30 seconds
+setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
