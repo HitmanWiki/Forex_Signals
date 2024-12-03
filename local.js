@@ -1,35 +1,43 @@
-const axios = require('axios');
-require('dotenv').config();
+const Binance = require('node-binance-api');
 
-const pairs = ['BTC/USD']; // Define the trading pairs
+const binance = new Binance().options({
+    APIKEY: process.env.BINANCE_API_KEY,
+    APISECRET: process.env.BINANCE_API_SECRET,
+    test: true, // Use Binance Testnet
 
-(async function fetchForexCryptoData(pair = 'BTC/USD', interval = '5min') {
-    const apiKey = process.env.TWELVE_DATA_API_KEY; // Load the API key from .env
+    family: 4 // Use IPv4 explicitly
+});
 
-    if (!apiKey) {
-        console.error('Error: API key is missing. Please check your .env file.');
-        return;
-    }
-
+async function fetchCandlestickData(symbol, interval) {
     try {
-        // Encode the pair to ensure it is URL-safe
-        const encodedPair = encodeURIComponent(pair);
+        const data = await new Promise((resolve, reject) => {
+            binance.candlesticks(symbol, interval, (error, ticks, symbol) => {
+                if (error) return reject(`Error fetching data: ${error.message}`);
+                resolve(ticks); // Return candlestick data
+            });
+        });
 
-        // Construct the URL
-        const url = `https://api.twelvedata.com/time_series?symbol=${encodedPair}&interval=${interval}&apikey=${apiKey}`;
+        const prices = data.map((tick) => ({
+            time: new Date(tick[0]), // Open time
+            open: parseFloat(tick[1]),
+            high: parseFloat(tick[2]),
+            low: parseFloat(tick[3]),
+            close: parseFloat(tick[4]),
+            volume: parseFloat(tick[5])
+        }));
 
-        // Debugging log to verify the constructed URL
-        console.log(`Fetching data from URL: ${url}`);
-
-        // Fetch data using Axios
-        const response = await axios.get(url);
-
-        if (response.data && response.data.values) {
-            console.log(`Fetched ${response.data.values.length} candles for ${pair}`);
-        } else {
-            console.error(`API Error: ${response.data.message || 'No data received'}`);
-        }
+        console.log(`Fetched ${prices.length} candles for ${symbol}`);
+        return prices;
     } catch (error) {
-        console.error(`Error: ${error.message}`);
+        console.error(`Error fetching data from Binance: ${error}`);
+        return [];
     }
-})(pairs[0]); // Pass the first pair explicitly
+}
+
+// Example Usage
+(async () => {
+    const symbol = "BTCUSDT"; // Binance symbol format
+    const interval = "3m"; // 3-minute interval
+    const prices = await fetchCandlestickData(symbol, interval);
+    console.log(prices);
+})();
