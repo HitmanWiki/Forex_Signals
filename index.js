@@ -10,6 +10,7 @@ const bot = new TelegramBot(botToken, { polling: true });
 
 // Configuration
 const symbol = "BTCUSDT"; // Your trading pair
+const interval = "3min"; // Fetch interval
 const limit = 150; // Number of candles to fetch
 
 // Active Signal Tracking
@@ -28,7 +29,7 @@ async function fetchCandles() {
     try {
         console.log(`Fetching data for ${symbol} with interval: ${interval}`);
         const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${symbol}/ohlc`, {
-            params: { vs_currency: "usd", days: "1", interval: "3m" },
+            params: { vs_currency: "usd", days: "1", interval: interval },
         });
 
         if (response.data && response.data.length > 0) {
