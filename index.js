@@ -16,6 +16,8 @@ const limit = 100; // Number of candles to fetch
 const atrLength = 20; // ATR calculation period
 const shortEmaLength = 9; // Short EMA length
 const longEmaLength = 21; // Long EMA length
+const riskRewardRatio = 2.0; // Define the risk-reward ratio
+
 const cprLength = 15; // CPR Lookback Period
 
 
@@ -245,7 +247,7 @@ async function main() {
 
 // Example of a reset trigger (Telegram Bot command)
 bot.onText(/\/reset/, (msg) => {
-    const chatId = msg.chat.id;
+    // const chatId = msg.chat.id;
     reset();
     bot.sendMessage(chatId, "All signals and stats have been reset.");
 });
