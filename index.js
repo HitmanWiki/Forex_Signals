@@ -11,7 +11,7 @@ const channelId = process.env.TELEGRAM_CHANNEL_ID;
 const bot = new TelegramBot(botToken, { polling: true });
 
 const pair = "BTC/USD"; // Pair
-const interval = "1min"; // Timeframe (can change to supported Alpha Vantage intervals)
+const interval = "1min"; // Timeframe
 const atrLength = 20; // ATR length
 const cprLength = 15; // CPR lookback period
 const emaShortLength = 30; // Short EMA
@@ -21,31 +21,41 @@ const useATR = true; // ATR-based stop-loss/take-profit
 
 let activeSignal = null; // Track active trades
 
-// Fetch data from Twelve Data API
-async function fetchData(pair, interval) {
+// Map trading pairs to Alpha Vantage symbols
+const symbolMap = {
+    "BTC/USD": "BTCUSD",
+};
+
+// Fetch Data from Alpha Vantage
+async function fetchData(symbol, interval) {
+    const mappedSymbol = symbolMap[symbol]; // Map pair to Alpha Vantage format
+    if (!mappedSymbol) {
+        console.error(`Symbol mapping not found for: ${symbol}`);
+        return [];
+    }
+
     try {
-        const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${symbol}&interval=${interval}&apikey=${apiKey}&datatype=json`;
+        const url = `https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=${mappedSymbol}&interval=${interval}&apikey=${apiKey}&datatype=json`;
         const response = await axios.get(url);
 
-        if (response.data && response.data.values) {
-            const prices = response.data.values.map((candle) => ({
-                time: new Date(candle.datetime),
-                open: parseFloat(candle.open),
-                high: parseFloat(candle.high),
-                low: parseFloat(candle.low),
-                close: parseFloat(candle.close),
-                volume: parseFloat(candle.volume || 0),
+        const timeSeriesKey = `Time Series (${interval})`;
+        if (response.data[timeSeriesKey]) {
+            const data = response.data[timeSeriesKey];
+            const prices = Object.keys(data).map((timestamp) => ({
+                time: new Date(timestamp),
+                open: parseFloat(data[timestamp]["1. open"]),
+                high: parseFloat(data[timestamp]["2. high"]),
+                low: parseFloat(data[timestamp]["3. low"]),
+                close: parseFloat(data[timestamp]["4. close"]),
             }));
-            console.log(`Fetched ${prices.length} candles for ${pair} (${interval})`);
-            return prices.reverse(); // Return in chronological order
+            console.log(`Fetched ${prices.length} candles for ${symbol} (${interval})`);
+            return prices.reverse(); // Return data in chronological order
         } else {
-            console.error(
-                `No data for ${pair}: ${response.data.message || "Unknown error"}`
-            );
+            console.error(`Error fetching data: ${response.data["Note"] || "Unknown error"}`);
             return [];
         }
     } catch (error) {
-        console.error(`Error fetching data for ${pair}: ${error.message}`);
+        console.error(`Error fetching data for ${symbol}: ${error.message}`);
         return [];
     }
 }
@@ -83,7 +93,7 @@ function calculateIndicators(prices) {
 // Generate Signal
 async function generateSignal() {
     console.log(`Generating signal for ${pair}`);
-    const prices = await fetchData(pair.split("/").join(""), interval); // Replace '/' for Alpha Vantage format
+    const prices = await fetchData(pair, interval); // Fetch data with mapped symbol
 
     if (!prices || prices.length < Math.max(emaLongLength, atrLength)) {
         console.log("Not enough data to calculate indicators.");
@@ -138,7 +148,7 @@ async function generateSignal() {
 // Monitor Active Signal
 async function monitorSignal() {
     if (!activeSignal) return;
-    const prices = await fetchData(pair.split("/").join(""), interval);
+    const prices = await fetchData(pair, interval);
     const currentPrice = prices[prices.length - 1]?.close;
 
     if (!currentPrice) return;
