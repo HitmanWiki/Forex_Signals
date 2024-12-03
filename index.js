@@ -9,10 +9,8 @@ const chatId = process.env.TELEGRAM_CHANNEL_ID; // Replace with your Telegram ch
 const bot = new TelegramBot(botToken, { polling: true });
 
 // Configuration
-const COIN_GECKO_API = "https://api.coingecko.com/api/v3/simple/price";
-const WATCHED_CRYPTOS = ["bitcoin"]; // Replace with your cryptocurrency list
-const vsCurrency = "usd"; // Currency for price comparison
-const interval = 180; // Check every 3 minutes (in seconds)
+const symbol = "BTCUSDT"; // Your trading pair
+const limit = 150; // Number of candles to fetch
 
 // Active Signal Tracking
 let activeSignal = {}; // Object to store active signals for each crypto
@@ -29,22 +27,21 @@ const riskRewardRatio = 2; // Risk-Reward Ratio
 async function fetchCandles() {
     try {
         console.log(`Fetching data for ${symbol} with interval: ${interval}`);
-        const response = await axios.get(COINGECKO_API_URL, {
-            params: { vs_currency: "usd", days: "1", interval: "minute" }, // Fetch 1-day minute-level data
+        const response = await axios.get(`https://api.coingecko.com/api/v3/coins/${symbol}/ohlc`, {
+            params: { vs_currency: "usd", days: "1", interval: "3m" },
         });
 
-        if (response.data && response.data.prices) {
-            const prices = response.data.prices.slice(-limit); // Use the latest `limit` candles
-            const candles = prices.map((price, index) => ({
-                time: new Date(price[0]),
-                open: index === 0 ? price[1] : prices[index - 1][1],
-                high: Math.max(price[1], index === 0 ? price[1] : prices[index - 1][1]),
-                low: Math.min(price[1], index === 0 ? price[1] : prices[index - 1][1]),
-                close: price[1],
-                volume: Math.random() * 10, // CoinGecko doesn't provide volume; generate mock data
+        if (response.data && response.data.length > 0) {
+            const candles = response.data.map((candle) => ({
+                time: new Date(candle[0]),
+                open: parseFloat(candle[1]),
+                high: parseFloat(candle[2]),
+                low: parseFloat(candle[3]),
+                close: parseFloat(candle[4]),
+                volume: parseFloat(candle[5] || 0), // Assuming volume is the 6th element; adjust if incorrect
             }));
-            console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
-            return candles.reverse(); // Reverse to chronological order
+            console.log(`Fetched ${candles.length} candles for ${symbol}`);
+            return candles;
         } else {
             console.error("Unexpected response format:", response.data);
             return [];
@@ -54,6 +51,7 @@ async function fetchCandles() {
         return [];
     }
 }
+
 
 // Calculate Indicators
 function calculateIndicators(candles) {
@@ -139,7 +137,10 @@ async function monitorSignal() {
     if (!activeSignal) return;
 
     const candles = await fetchCandles();
-    if (candles.length < limit) return;
+    if (!candles || candles.length < limit) {
+        console.error("Not enough data to calculate indicators.");
+        return;
+    }
 
     const currentPrice = candles[candles.length - 1].close;
 
