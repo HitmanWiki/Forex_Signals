@@ -6,7 +6,7 @@ require("dotenv").config();
 // Configuration
 const API_URL = "https://api.coinex.com/v1/market/kline";
 const symbol = "BTCUSDT";
-const interval = "1min";
+const interval = "3min";
 const limit = 150;
 
 // Telegram Bot Setup
@@ -81,6 +81,13 @@ function generateSignal(candles, indicators) {
     const { shortEma, longEma, atr } = indicators;
     const currentPrice = candles[candles.length - 1].close;
 
+    console.log("=== Indicator Values ===");
+    console.log(`Short EMA: ${shortEma}`);
+    console.log(`Long EMA: ${longEma}`);
+    console.log(`ATR: ${atr}`);
+    console.log("=== Price Info ===");
+    console.log(`Current Price: ${currentPrice}`);
+
     const longCondition = currentPrice > shortEma && shortEma > longEma;
     const shortCondition = currentPrice < shortEma && shortEma < longEma;
 
@@ -101,6 +108,7 @@ function generateSignal(candles, indicators) {
             price: currentPrice,
         };
     }
+
     console.log("No signal generated.");
     return null;
 }
@@ -187,6 +195,6 @@ async function main() {
 }
 
 // Schedule tasks
-setInterval(main, 60 * 1000); // Run every minute
-setInterval(monitorSignal, 30 * 1000); // Monitor active signal every 30 seconds
+setInterval(main, 180 * 1000); // Run every minute
+setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 30 seconds
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
