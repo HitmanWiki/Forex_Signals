@@ -10,6 +10,7 @@
     "axios": "^1.7.7",
     "chartjs-node-canvas": "^4.1.6",
     "dotenv": "^16.4.5",
+    "node-binance-api": "^0.13.1",
     "node-telegram-bot-api": "^0.66.0",
     "technicalindicators": "^3.1.0"
   },
