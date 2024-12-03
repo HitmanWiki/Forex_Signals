@@ -1,23 +1,19 @@
 const axios = require("axios");
 const technicalindicators = require("technicalindicators");
+require("dotenv").config();
 
-// Fetch candles from Coinex API
-async function fetchCandles(symbol, interval = "1min", limit = 150) {
+// Configuration
+const API_URL = "https://api.coinex.com/v1/market/kline";
+const symbol = "BTCUSDT";
+const interval = "3min";
+const limit = 150;
+
+// Fetch candles from Coinex
+async function fetchCandles() {
     try {
-        const url = `https://api.coinex.com/v1/market/kline`;
-
-        // Coinex API requires specific formats for market and interval
-        const formattedSymbol = symbol.replace("BTCUSDT", "BTCUSDT"); // Ensure correct symbol format
-        const formattedInterval = interval; // Ensure correct interval
-
-        console.log(`Fetching data for ${formattedSymbol} with interval: ${formattedInterval}`);
-
-        const response = await axios.get(url, {
-            params: {
-                market: formattedSymbol, // Example: BTCUSDT
-                type: formattedInterval, // Example: 1min, 3min, etc.
-                limit: limit, // Number of candles to fetch
-            },
+        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
+        const response = await axios.get(API_URL, {
+            params: { market: symbol, type: interval, limit: limit },
         });
 
         if (response.data && response.data.data) {
@@ -29,44 +25,43 @@ async function fetchCandles(symbol, interval = "1min", limit = 150) {
                 close: parseFloat(candle[2]),
                 volume: parseFloat(candle[5]),
             }));
-
             console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
+            console.log("Sample Candle:", candles[candles.length - 1]); // Display the most recent candle
             return candles.reverse(); // Reverse to chronological order
         } else {
-            console.error(`Unexpected response format`, response.data);
+            console.error("Unexpected response format:", response.data);
             return [];
         }
     } catch (error) {
         console.error(`Error fetching candles: ${error.message}`);
-        if (error.response) {
-            console.error(`Response Data:`, error.response.data);
-        }
+        if (error.response) console.error("Response Data:", error.response.data);
         return [];
     }
 }
 
 // Calculate indicators
-function calculateIndicators(candles, atrLength = 14, shortEmaLength = 30, longEmaLength = 100) {
+function calculateIndicators(candles) {
     const closes = candles.map((c) => c.close);
     const highs = candles.map((c) => c.high);
     const lows = candles.map((c) => c.low);
 
-    // ATR Calculation
+    console.log("Closes for Indicator Calculation:", closes); // Debug closes
+
     const atr = technicalindicators.ATR.calculate({
         high: highs,
         low: lows,
         close: closes,
-        period: atrLength,
+        period: 14,
     });
 
-    // EMA Calculations
     const shortEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: shortEmaLength,
+        period: 30,
     });
+
     const longEma = technicalindicators.EMA.calculate({
         values: closes,
-        period: longEmaLength,
+        period: 100,
     });
 
     return {
@@ -81,48 +76,64 @@ function generateSignal(candles, indicators) {
     const { shortEma, longEma, atr } = indicators;
     const currentPrice = candles[candles.length - 1].close;
 
-    // Define signal conditions
-    const longCondition = currentPrice > shortEma && shortEma > longEma;
-    const shortCondition = currentPrice < shortEma && shortEma < longEma;
+    console.log("=== Indicator Values ===");
+    console.log(`Short EMA: ${shortEma}`);
+    console.log(`Long EMA: ${longEma}`);
+    console.log(`ATR: ${atr}`);
+    console.log("=== Price Info ===");
+    console.log(`Current Price: ${currentPrice}`);
+
+    const atrMultiplier = 1.5;
+
+    const longCondition =
+        currentPrice >= shortEma * 0.999 &&
+        shortEma > longEma;
+
+    const shortCondition =
+        currentPrice <= shortEma * 1.001 &&
+        shortEma < longEma;
 
     if (longCondition) {
-        console.log(`BUY Signal Detected!`);
-        console.log(`Current Price: ${currentPrice}, Stop Loss: ${currentPrice - atr}, Take Profit: ${currentPrice + 2 * atr}`);
-        return { signal: "BUY", stopLoss: currentPrice - atr, takeProfit: currentPrice + 2 * atr };
+        console.log("BUY Signal Detected!");
+        return {
+            signal: "BUY",
+            stopLoss: currentPrice - atr * atrMultiplier,
+            takeProfit: currentPrice + atr * atrMultiplier,
+            price: currentPrice,
+        };
     } else if (shortCondition) {
-        console.log(`SELL Signal Detected!`);
-        console.log(`Current Price: ${currentPrice}, Stop Loss: ${currentPrice + atr}, Take Profit: ${currentPrice - 2 * atr}`);
-        return { signal: "SELL", stopLoss: currentPrice + atr, takeProfit: currentPrice - 2 * atr };
-    } else {
-        console.log(`No signal generated.`);
-        return { signal: "HOLD" };
+        console.log("SELL Signal Detected!");
+        return {
+            signal: "SELL",
+            stopLoss: currentPrice + atr * atrMultiplier,
+            takeProfit: currentPrice - atr * atrMultiplier,
+            price: currentPrice,
+        };
     }
+
+    console.log("No signal generated.");
+    return null;
 }
 
-// Main function for testing
+// Main function
 async function main() {
-    const symbol = "BTCUSDT";
-    const interval = "1min";
-
-    const candles = await fetchCandles(symbol, interval);
+    const candles = await fetchCandles();
 
     if (candles.length < 100) {
-        console.error(`Not enough data to calculate indicators.`);
+        console.log("Not enough data to calculate indicators.");
         return;
     }
 
-    console.log(`Sample Candle:`, candles[candles.length - 1]);
-
     const indicators = calculateIndicators(candles);
 
-    console.log("=== Indicator Values ===");
-    console.log(`ATR: ${indicators.atr}`);
-    console.log(`Short EMA: ${indicators.shortEma}`);
-    console.log(`Long EMA: ${indicators.longEma}`);
-
     const signal = generateSignal(candles, indicators);
-    console.log(`Generated Signal:`, signal);
+
+    if (signal) {
+        console.log("Generated Signal:", signal);
+    } else {
+        console.log("No valid signal at this time.");
+    }
 }
 
-// Run the main function
+// Run the bot
 main();

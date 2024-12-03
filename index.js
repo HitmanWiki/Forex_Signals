@@ -175,6 +175,13 @@ function sendActiveSignalStatus() {
     Take Profit: $${activeSignal.takeProfit.toFixed(2)}`;
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
+// Function to reset active signal
+function resetActiveSignal() {
+    console.log("Resetting active signal...");
+    activeSignal = null; // Clear the existing signal
+    bot.sendMessage(chatId, "Active signal has been reset. New signals will now be generated.");
+}
+
 
 // Main signal generation loop
 async function main() {
