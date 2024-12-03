@@ -3,11 +3,7 @@ const technicalindicators = require("technicalindicators");
 const TelegramBot = require("node-telegram-bot-api");
 require("dotenv").config();
 
-// Configuration
-const API_URL = "https://api.coinex.com/v1/market/kline";
-const symbol = "BTCUSDT";
-const interval = "3min";
-const limit = 150;
+
 
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -17,35 +13,35 @@ const bot = new TelegramBot(botToken, { polling: true });
 let activeSignal = null; // Stores the current active signal
 
 // Fetch candles from Coinex
-async function fetchCandles() {
+async function fetchBinanceCandles(symbol = "BTCUSDT", interval = "3m", limit = 150) {
     try {
-        console.log(`Fetching data for ${symbol} with interval: ${interval}`);
-        const response = await axios.get(API_URL, {
-            params: { market: symbol, type: interval, limit: limit },
-        });
+        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+        console.log(`Fetching data from Binance URL: ${url}`);
 
-        if (response.data && response.data.data) {
-            const candles = response.data.data.map((candle) => ({
-                time: new Date(candle[0] * 1000),
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[3]),
-                low: parseFloat(candle[4]),
-                close: parseFloat(candle[2]),
-                volume: parseFloat(candle[5]),
-            }));
-            console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
-            return candles.reverse(); // Reverse to chronological order
-        } else {
-            console.error("Unexpected response format:", response.data);
-            return [];
-        }
+        // Make the GET request
+        const response = await axios.get(url);
+
+        // Format the response into readable candles
+        const candles = response.data.map((candle) => ({
+            time: new Date(candle[0]), // Open time
+            open: parseFloat(candle[1]), // Open price
+            high: parseFloat(candle[2]), // High price
+            low: parseFloat(candle[3]), // Low price
+            close: parseFloat(candle[4]), // Close price
+            volume: parseFloat(candle[5]), // Volume
+        }));
+
+        console.log(`Fetched ${candles.length} candles for ${symbol} (${interval})`);
+        console.log("Sample Candle:", candles[candles.length - 1]); // Log the latest candle
+        return candles;
     } catch (error) {
-        console.error(`Error fetching candles: ${error.message}`);
-        if (error.response) console.error("Response Data:", error.response.data);
+        console.error("Error fetching candles:", error.message);
+        if (error.response) {
+            console.error("Response Data:", error.response.data);
+        }
         return [];
     }
 }
-
 // Calculate indicators
 function calculateIndicators(candles) {
     const closes = candles.map((c) => c.close);
