@@ -78,33 +78,43 @@ function calculateIndicators(candles) {
 
 // Generate a signal
 function generateSignal(candles, indicators) {
-    const { shortEma, longEma, atr } = indicators;
+    const { shortEma, longEma, atr, rsi } = indicators;
     const currentPrice = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
     console.log(`Short EMA: ${shortEma}`);
     console.log(`Long EMA: ${longEma}`);
     console.log(`ATR: ${atr}`);
+    console.log(`RSI: ${rsi}`);
     console.log("=== Price Info ===");
     console.log(`Current Price: ${currentPrice}`);
 
-    const longCondition = currentPrice > shortEma && shortEma > longEma;
-    const shortCondition = currentPrice < shortEma && shortEma < longEma;
+    const atrMultiplier = 1.5;
+
+    const longCondition =
+        currentPrice >= shortEma * 0.999 &&
+        shortEma > longEma &&
+        rsi > 50;
+
+    const shortCondition =
+        currentPrice <= shortEma * 1.001 &&
+        shortEma < longEma &&
+        rsi < 50;
 
     if (longCondition) {
         console.log("BUY Signal Detected!");
         return {
             signal: "BUY",
-            stopLoss: currentPrice - atr,
-            takeProfit: currentPrice + 2 * atr,
+            stopLoss: currentPrice - atr * atrMultiplier,
+            takeProfit: currentPrice + atr * atrMultiplier,
             price: currentPrice,
         };
     } else if (shortCondition) {
         console.log("SELL Signal Detected!");
         return {
             signal: "SELL",
-            stopLoss: currentPrice + atr,
-            takeProfit: currentPrice - 2 * atr,
+            stopLoss: currentPrice + atr * atrMultiplier,
+            takeProfit: currentPrice - atr * atrMultiplier,
             price: currentPrice,
         };
     }
