@@ -11,16 +11,16 @@ const bot = new TelegramBot(botToken, { polling: true });
 // Configuration
 const symbol = "BTCUSDT"; // Your trading pair
 const interval = "3min"; // Fetch interval
-const limit = 150; // Number of candles to fetch
+const limit = 23; // Number of candles to fetch
 
 // Active Signal Tracking
 let activeSignal = {}; // Object to store active signals for each crypto
 let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
 
 // Parameters
-const atrLength = 20; // ATR Lookback Period
-const emaShortLength = 30; // Short EMA Period
-const emaLongLength = 100; // Long EMA Period
+const atrLength = 14; // ATR Lookback Period
+const emaShortLength = 9; // Short EMA Period
+const emaLongLength = 21; // Long EMA Period
 const cprLength = 15; // CPR Lookback Period
 const riskRewardRatio = 2; // Risk-Reward Ratio
 
