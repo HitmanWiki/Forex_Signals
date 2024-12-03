@@ -23,6 +23,7 @@ const riskRewardRatio = 2.0; // Risk-Reward ratio
 let activeSignal = null; // Track the active signal
 
 // Fetch 3-minute candles from Binance
+// Fetch 3-minute candles from Binance using promises
 async function fetchCandleData() {
     try {
         const candles = await binance.futuresCandlesticks(pair, interval, { limit: 30 });
@@ -41,6 +42,7 @@ async function fetchCandleData() {
         return [];
     }
 }
+
 
 // Calculate indicators
 function calculateIndicators(prices) {
