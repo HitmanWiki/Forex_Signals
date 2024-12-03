@@ -27,11 +27,11 @@ const riskRewardRatio = 2.0;
 let activeSignal = null; // Track active trade
 
 // Helper Function: Fetch Candlesticks from CoinEx
-async function fetchCandles() {
+async function fetchCandles(symbol, interval, limit = 150) {
     try {
         const response = await axios.get(`${BASE_URL}/market/kline`, {
             params: {
-                market: pair,
+                symbol,
                 type: interval,
                 limit,
             },
@@ -103,16 +103,35 @@ function calculateATR(candles, length) {
 
 // Generate Signal
 async function generateSignal() {
-    console.log(`Generating signal for ${pair}...`);
-    const candles = await fetchCandles();
 
-    if (candles.length < Math.max(emaShortLength, emaLongLength, atrLength)) {
-        console.log("Not enough data to calculate indicators.");
+    console.log(`Generating signal for ${pair}...`);
+    const candles = await fetchWithRetry(pair, interval, 150); // Fetch 150 candles for safety
+
+    if (candles.length < Math.max(atrLength, shortEmaLength, longEmaLength)) {
+        console.log(`Not enough data to calculate indicators. Fetched ${candles.length} candles.`);
         return;
     }
 
-    const { emaShort, emaLong, atr, cprUpper, cprLower } = calculateIndicators(candles);
+    console.log("Fetched sufficient data for indicators.");
+    const { shortEma, longEma, atr } = calculateIndicators(candles);
+
+    if (!shortEma || !longEma || !atr) {
+        console.log("Failed to calculate indicators.");
+        return;
+    }
+
     const currentPrice = candles[candles.length - 1].close;
+    const recentHigh = Math.max(...candles.slice(-10).map((c) => c.high));
+    const recentLow = Math.min(...candles.slice(-10).map((c) => c.low));
+
+    console.log('=== Indicator Values ===');
+    console.log(`Short EMA: ${shortEma}`);
+    console.log(`Long EMA: ${longEma}`);
+    console.log(`ATR: ${atr}`);
+    console.log('=== Price Info ===');
+    console.log(`Current Price: ${currentPrice}`);
+    console.log(`Recent High: ${recentHigh}`);
+    console.log(`Recent Low: ${recentLow}`);
 
     let signal = "HOLD";
     let stopLoss, takeProfit;
@@ -150,7 +169,9 @@ async function generateSignal() {
 
 // Monitor Active Signal
 async function monitorSignal() {
-    if (!activeSignal) return;
+    if (activeSignal) {
+        console.log('Active Signal:', activeSignal);
+    }
 
     const candles = await fetchCandles();
     const currentPrice = candles[candles.length - 1]?.close;
