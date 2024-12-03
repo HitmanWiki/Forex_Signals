@@ -7,20 +7,20 @@ require("dotenv").config();
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const channelId = process.env.TELEGRAM_CHANNEL_ID;
 const binanceApiKey = process.env.BINANCE_API_KEY;
-const binanceApiUrl = "https://testnet.binance.vision/api/v3";
+const binanceApiUrl = "https://api.binance.com/api/v3";
 
 const bot = new TelegramBot(botToken, { polling: true });
 
 const pair = "BTCUSDT"; // Binance symbol format
 const interval = "3m"; // 3-minute timeframe
-const requiredCandles = 100; // Increase to ensure enough data for all indicators
+const requiredCandles = 100; // Fetch enough candles for indicators
 const atrLength = 14; // ATR length
 const shortEmaLength = 30; // Short EMA
 const longEmaLength = 100; // Long EMA
 const cprLength = 15; // CPR lookback period
 const riskRewardRatio = 2.0; // Risk-reward ratio
 
-let activeSignal = null;
+let activeSignal = null; // Only one active signal at a time
 let signalHistory = { successes: 0, failures: 0, total: 0 };
 
 // Fetch data from Binance Testnet API
@@ -30,7 +30,7 @@ async function fetchData(symbol, interval, limit) {
             params: {
                 symbol: symbol,
                 interval: interval,
-                limit: limit, // Fetch more candles
+                limit: limit,
             },
             headers: {
                 "X-MBX-APIKEY": binanceApiKey,
@@ -102,6 +102,11 @@ function calculateIndicators(prices) {
 
 // Generate signals
 async function generateSignal() {
+    if (activeSignal) {
+        console.log("Active signal in progress. Waiting for it to resolve...");
+        return; // Skip signal generation if there's an active signal
+    }
+
     console.log(`Generating signal for ${pair}`);
     const prices = await fetchData(pair, interval, requiredCandles);
 
@@ -165,23 +170,43 @@ async function monitorSignal() {
 
     if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
         console.log("BUY trade stopped out.");
+        bot.sendMessage(channelId, `❌ **Signal Failed**: ${activeSignal.signal} hit Stop Loss.`);
         signalHistory.failures++;
         activeSignal = null;
     } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
         console.log("SELL trade stopped out.");
+        bot.sendMessage(channelId, `❌ **Signal Failed**: ${activeSignal.signal} hit Stop Loss.`);
         signalHistory.failures++;
         activeSignal = null;
     } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
         console.log("BUY trade hit TP.");
+        bot.sendMessage(channelId, `✅ **Signal Successful**: ${activeSignal.signal} hit Take Profit!`);
         signalHistory.successes++;
         activeSignal = null;
     } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
         console.log("SELL trade hit TP.");
+        bot.sendMessage(channelId, `✅ **Signal Successful**: ${activeSignal.signal} hit Take Profit!`);
         signalHistory.successes++;
         activeSignal = null;
+    }
+}
+
+// Hourly Status Update
+function sendHourlyUpdate() {
+    if (!activeSignal) {
+        bot.sendMessage(channelId, "⏰ **Hourly Update**: No active signal currently.");
+    } else {
+        bot.sendMessage(
+            channelId,
+            `⏰ **Hourly Update**\n
+            Active Signal: ${activeSignal.signal}\n
+            Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
+            Take Profit: $${activeSignal.takeProfit.toFixed(2)}\n`
+        );
     }
 }
 
 // Schedule signal generation and monitoring
 setInterval(generateSignal, 3 * 60 * 1000); // Every 3 minutes
 setInterval(monitorSignal, 1 * 60 * 1000); // Every 1 minute
+setInterval(sendHourlyUpdate, 60 * 60 * 1000); // Every 1 hour
