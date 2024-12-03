@@ -11,7 +11,7 @@ const limit = 150;
 
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID; // Replace with your Telegram chat ID
+const chatId = process.env.TELEGRAM_CHANNEL_ID; // Replace with your Telegram chat ID
 const bot = new TelegramBot(botToken, { polling: true });
 
 let activeSignal = null; // Stores the current active signal
