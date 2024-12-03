@@ -182,6 +182,12 @@ function resetActiveSignal() {
     bot.sendMessage(chatId, "Active signal has been reset. New signals will now be generated.");
 }
 
+bot.onText(/\/reset/, (msg) => {
+    const chatId = msg.chat.id;
+    resetActiveSignal();
+});
+
+
 
 // Main signal generation loop
 async function main() {
