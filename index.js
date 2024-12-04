@@ -100,6 +100,14 @@ function calculateIndicators(candles) {
 // Generate Signal
 function generateSignal(candles, indicators, pair) {
     const { atr, emaShort, emaLong, cprUpper, cprLower } = indicators;
+
+    // Ensure indicators are calculated and have enough data
+    if (!emaShort || !emaLong || emaShort.length === 0 || emaLong.length === 0) {
+        console.error("EMA data is missing or insufficient.");
+        return null;
+    }
+
+
     const close = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
