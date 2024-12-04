@@ -117,8 +117,8 @@ function generateSignal(candles, indicators) {
     const close = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
-    console.log(`Short EMA: ${emaFast[emaFast.length - 1]}`);
-    console.log(`Long EMA: ${emaSlow[emaSlow.length - 1]}`);
+    console.log(`Fast EMA: ${emaFast}`);
+    console.log(`Slow EMA: ${emaSlow}`);
     console.log(`ATR: ${atr}`);
     console.log(`CPR Upper: ${cprUpper}`);
     console.log(`CPR Lower: ${cprLower}`);
@@ -225,7 +225,30 @@ function sendSignalOutcome(outcome, signal) {
 
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
+// Function to send signal stats
+function sendSignalStats() {
+    try {
+        const totalSignals = successCount + failureCount; // Total signals generated
+        const successRatio = totalSignals > 0
+            ? ((successCount / totalSignals) * 100).toFixed(2)
+            : "0.00";
 
+        const message = `📊 **Signal Stats Update** 📊\n
+        Total Signals: ${totalSignals}\n
+        Successful Signals: ${successCount}\n
+        Failed Signals: ${failureCount}\n
+        Success Ratio: ${successRatio}%`;
+
+        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } catch (error) {
+        console.error("Error sending signal stats:", error.message);
+        bot.sendMessage(
+            chatId,
+            "⚠️ Error occurred while sending signal stats. Please check the logs.",
+            { parse_mode: "Markdown" }
+        );
+    }
+}
 
 function sendActiveSignalStatus() {
     try {
@@ -328,4 +351,4 @@ bot.onText(/\/reset/, (msg) => {
 setInterval(main, 180 * 1000); // Run every 3 minutes
 setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 1 minute
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
-// setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
+setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
