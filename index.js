@@ -18,6 +18,7 @@ let activeSignal = null;
 let totalSignals = 0;
 let successCount = 0;
 let failureCount = 0;
+const atrMultiplier = 1.5;
 
 // Fetch candles
 async function fetchCandles() {
@@ -147,8 +148,9 @@ function generateSignal(candles, indicators) {
             id: totalSignals,
             crypto: symbol,
             signal: "BUY",
-            stopLoss: close - atr * 1.5,
+            stopLoss: close - atr * atrMultiplier,
             takeProfit: close + atr * 2.0,
+            trailingStop: close - atr * atrMultiplier, // Initial trailing stop
             price: close,
         };
     } else if (sellCondition) {
@@ -157,8 +159,9 @@ function generateSignal(candles, indicators) {
             id: totalSignals,
             crypto: symbol,
             signal: "SELL",
-            stopLoss: close + atr * 1.5,
+            stopLoss: close + atr * atrMultiplier,
             takeProfit: close - atr * 2.0,
+            trailingStop: close + atr * atrMultiplier, // Initial trailing stop
             price: close,
         };
     }
@@ -177,26 +180,36 @@ async function monitorSignal() {
 
     const currentPrice = candles[candles.length - 1].close;
 
-    if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
-        console.log("BUY trade stopped out.");
-        sendSignalOutcome("STOP LOSS HIT", activeSignal);
-        failureCount++; // Increment failure count
-        activeSignal = null; // Reset signal
-    } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
-        console.log("BUY trade hit TP.");
-        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
-        successCount++; // Increment success count
-        activeSignal = null; // Reset signal
-    } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
-        console.log("SELL trade stopped out.");
-        sendSignalOutcome("STOP LOSS HIT", activeSignal);
-        failureCount++; // Increment failure count
-        activeSignal = null; // Reset signal
-    } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
-        console.log("SELL trade hit TP.");
-        sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
-        successCount++; // Increment success count
-        activeSignal = null; // Reset signal
+    if (activeSignal.signal === "BUY") {
+        // Update trailing stop for BUY
+        activeSignal.trailingStop = Math.max(activeSignal.trailingStop, currentPrice - activeSignal.atr * 1.5);
+
+        if (currentPrice <= activeSignal.trailingStop) {
+            console.log("BUY trade stopped out with trailing stop.");
+            sendSignalOutcome("TRAILING STOP HIT", activeSignal);
+            failureCount++;
+            activeSignal = null;
+        } else if (currentPrice >= activeSignal.takeProfit) {
+            console.log("BUY trade hit TP.");
+            sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+            successCount++;
+            activeSignal = null;
+        }
+    } else if (activeSignal.signal === "SELL") {
+        // Update trailing stop for SELL
+        activeSignal.trailingStop = Math.min(activeSignal.trailingStop, currentPrice + activeSignal.atr * 1.5);
+
+        if (currentPrice >= activeSignal.trailingStop) {
+            console.log("SELL trade stopped out with trailing stop.");
+            sendSignalOutcome("TRAILING STOP HIT", activeSignal);
+            failureCount++;
+            activeSignal = null;
+        } else if (currentPrice <= activeSignal.takeProfit) {
+            console.log("SELL trade hit TP.");
+            sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
+            successCount++;
+            activeSignal = null;
+        }
     }
 }
 
@@ -220,6 +233,7 @@ function sendSignalOutcome(outcome, signal) {
      Outcome: ${outcome || "N/A"}\n
      Entry Price: $${signal.price?.toFixed(2) || "N/A"}\n
      Stop Loss: $${signal.stopLoss?.toFixed(2) || "N/A"}\n
+      Trailing Stop: $${signal.trailingStop?.toFixed(2) || "N/A"}\n
      Take Profit: $${signal.takeProfit?.toFixed(2) || "N/A"}\n
      Success Ratio: ${((successCount / (successCount + failureCount || 1)) * 100).toFixed(2)}%`;
 
