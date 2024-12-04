@@ -5,7 +5,7 @@ require("dotenv").config();
 
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID;
+const chatId = process.env.TELEGRAM_CHANNEL_ID;
 const bot = new TelegramBot(botToken, { polling: true });
 
 const COINEX_API_URL = "https://api.coinex.com/v1/market/kline";
