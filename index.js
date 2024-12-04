@@ -195,39 +195,71 @@ async function monitorSignal() {
 
 // Send Signal Outcome to Telegram
 function sendSignalOutcome(outcome, signal) {
-    const successRatio =
-        (successCount / (successCount + failureCount) * 100).toFixed(2) || "0.00";
-    const message = `📊 **Signal Outcome** 📊\n
-     Signal ID: ${signal.id}\n
-Crypto: ${signal.crypto.toUpperCase()}\n
-Signal: ${signal.signal}\n
-Outcome: ${outcome}\n
-Entry Price: $${signal.price.toFixed(2)}\n
-Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-Take Profit: $${signal.takeProfit.toFixed(2)}\n
- Success Ratio: ${successRatio}%`;
-
-    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-}
-
-function sendActiveSignalStatus() {
-    if (!activeSignal) {
-        bot.sendMessage(chatId, "No active signal at the moment.");
+    if (!signal || typeof signal !== "object") {
+        console.error("Invalid signal object:", signal);
+        bot.sendMessage(
+            chatId,
+            "Error: Unable to send signal outcome due to missing or invalid signal data."
+        );
         return;
     }
 
-    const successRatio =
-        (successCount / (successCount + failureCount) * 100).toFixed(2) || "0.00";
-    const message = `📊 **Active Signal Update** 📊\n
-    Signal: ${activeSignal.signal}\n
-    Entry Price: $${activeSignal.price.toFixed(2)}\n
-    Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
-    Take Profit: $${activeSignal.takeProfit.toFixed(2)}\n
-    Success Ratio: ${successRatio}%`;
+    // Ensure successCount and failureCount are defined and prevent division by zero
+    const totalSignals = (successCount || 0) + (failureCount || 0);
+    const successRatio = totalSignals > 0
+        ? ((successCount / totalSignals) * 100).toFixed(2)
+        : "0.00";
+
+    const message = `📊 **Signal Outcome** 📊\n
+     Signal ID: ${signal.id || "N/A"}\n
+     Crypto: ${signal.crypto?.toUpperCase() || "N/A"}\n
+     Signal: ${signal.signal || "N/A"}\n
+     Outcome: ${outcome || "N/A"}\n
+     Entry Price: $${signal.price?.toFixed(2) || "N/A"}\n
+     Stop Loss: $${signal.stopLoss?.toFixed(2) || "N/A"}\n
+     Take Profit: $${signal.takeProfit?.toFixed(2) || "N/A"}\n
+     Success Ratio: ${successRatio}%`;
 
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
 
+
+function sendActiveSignalStatus() {
+    try {
+        // Check if there is an active signal
+        if (!activeSignal) {
+            bot.sendMessage(chatId, "No active signal at the moment.");
+            return;
+        }
+
+        // Calculate success ratio safely
+        const successRatio = successCount + failureCount > 0
+            ? ((successCount / (successCount + failureCount)) * 100).toFixed(2)
+            : "0.00";
+
+        // Build the message with safe checks for all properties
+        const message = `📊 **Active Signal Update** 📊\n
+        Signal ID: ${activeSignal.id || "N/A"}\n
+        Crypto: ${activeSignal.crypto?.toUpperCase() || "N/A"}\n
+        Signal: ${activeSignal.signal || "N/A"}\n
+        Entry Price: $${activeSignal.price?.toFixed(2) || "N/A"}\n
+        Stop Loss: $${activeSignal.stopLoss?.toFixed(2) || "N/A"}\n
+        Take Profit: $${activeSignal.takeProfit?.toFixed(2) || "N/A"}\n
+        Success Ratio: ${successRatio}%`;
+
+        // Send the message to Telegram
+        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } catch (error) {
+        console.error("Error sending active signal status:", error.message);
+
+        // Notify via Telegram about the error
+        bot.sendMessage(
+            chatId,
+            "⚠️ Error occurred while sending the active signal status. Please check the logs.",
+            { parse_mode: "Markdown" }
+        );
+    }
+}
 
 // Reset function
 function resetSignals() {
@@ -238,31 +270,47 @@ function resetSignals() {
 }
 // Main Function
 async function main() {
-    const candles = await fetchCandles();
+    try {
+        const candles = await fetchCandles();
 
-    if (candles.length < limit) {
-        console.log("Not enough data to calculate indicators.");
-        return;
-    }
+        if (!candles || candles.length < limit) {
+            console.log("Not enough data to calculate indicators.");
+            return;
+        }
 
-    const indicators = calculateIndicators(candles);
+        const indicators = calculateIndicators(candles);
 
-    const signal = generateSignal(candles, indicators);
+        if (!indicators) {
+            console.log("Error calculating indicators.");
+            return;
+        }
 
-    if (signal && !activeSignal) {
-        console.log("New Signal Generated:", signal);
-        activeSignal = signal;
+        const signal = generateSignal(candles, indicators);
 
-        const message = `📊 **New Trading Signal** 📊\n
-         Signal ID: ${signal.id}\n
-        Crypto: ${signal.crypto.toUpperCase()}\n
-        Signal: ${signal.signal}\n
-        Entry Price: $${signal.price.toFixed(2)}\n
-        Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-        Take Profit: $${signal.takeProfit.toFixed(2)}`;
-        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-    } else if (signal) {
-        console.log("Signal already active. Waiting for resolution...");
+        if (signal && !activeSignal) {
+            console.log("New Signal Generated:", signal);
+            activeSignal = signal;
+
+            const message = `📊 **New Trading Signal** 📊\n
+             Signal ID: ${signal.id || "N/A"}\n
+             Crypto: ${signal.crypto?.toUpperCase() || "N/A"}\n
+             Signal: ${signal.signal || "N/A"}\n
+             Entry Price: $${signal.price?.toFixed(2) || "N/A"}\n
+             Stop Loss: $${signal.stopLoss?.toFixed(2) || "N/A"}\n
+             Take Profit: $${signal.takeProfit?.toFixed(2) || "N/A"}`;
+            bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+        } else if (signal) {
+            console.log("Signal already active. Waiting for resolution...");
+        } else {
+            console.log("No new signal generated.");
+        }
+    } catch (error) {
+        console.error("Error in main function:", error.message);
+        bot.sendMessage(
+            chatId,
+            "⚠️ Error occurred while processing trading signals. Please check the logs.",
+            { parse_mode: "Markdown" }
+        );
     }
 }
 
