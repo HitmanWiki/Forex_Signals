@@ -26,6 +26,7 @@ let activeSignal = {}; // Object to store active signals for each crypto
 let successCount = 0; // Tracks the number of successful trades
 let failureCount = 0; // Tracks the number of failed trades
 let totalSignals = 0;
+let signalCounter = 1;
 
 // Fetch candles from CoinGecko
 async function fetchCandles() {
@@ -97,43 +98,48 @@ function calculateIndicators(candles) {
 }
 
 // Generate Signal
-function generateSignal(candles, indicators) {
-    const { atr, shortEma, longEma, cprUpper, cprLower } = indicators;
+function generateSignal(candles, indicators, pair) {
+    const { atr, emaShort, emaLong, cprUpper, cprLower } = indicators;
     const close = candles[candles.length - 1].close;
+
     console.log("=== Indicator Values ===");
-    console.log(`Short EMA: ${shortEma}`);
-    console.log(`Long EMA: ${longEma}`);
+    console.log(`Short EMA: ${emaShort[emaShort.length - 1]}`);
+    console.log(`Long EMA: ${emaLong[emaLong.length - 1]}`);
     console.log(`ATR: ${atr}`);
     console.log(`CPR Upper: ${cprUpper}`);
     console.log(`CPR Lower: ${cprLower}`);
     console.log("=== Price Info ===");
-    console.log(`Current Price: ${currentPrice}`);
+    console.log(`Current Price: ${close}`);
 
-
-
-
+    // Check for conditions
     const longCondition = close > cprUpper && emaShort[emaShort.length - 1] > emaLong[emaLong.length - 1];
     const shortCondition = close < cprLower && emaShort[emaShort.length - 1] < emaLong[emaLong.length - 1];
+
+    // Risk-reward ratio
+    const riskRewardRatio = 2; // Example value; adjust as needed
+
     if (longCondition) {
         console.log("BUY Signal Detected!");
         totalSignals++;
         return {
-            crypto: symbol,
+            id: signalCounter++,
+            crypto: pair,
             signal: "BUY",
-            stopLoss: currentPrice - atr,
-            takeProfit: currentPrice + atr * riskRewardRatio,
-            price: currentPrice,
+            stopLoss: close - atr,
+            takeProfit: close + atr * riskRewardRatio,
+            price: close,
             tag: `Signal #${totalSignals}`,
         };
     } else if (shortCondition) {
         console.log("SELL Signal Detected!");
         totalSignals++;
         return {
-            crypto: symbol,
+            id: signalCounter++,
+            crypto: pair,
             signal: "SELL",
-            stopLoss: currentPrice + atr,
-            takeProfit: currentPrice - atr * riskRewardRatio,
-            price: currentPrice,
+            stopLoss: close + atr,
+            takeProfit: close - atr * riskRewardRatio,
+            price: close,
             tag: `Signal #${totalSignals}`,
         };
     }
@@ -141,6 +147,7 @@ function generateSignal(candles, indicators) {
     console.log("No signal generated.");
     return null;
 }
+
 
 // Monitor Active Signal
 // Monitor active signal
@@ -183,6 +190,7 @@ function sendSignalOutcome(outcome, signal) {
     const successRatio =
         (successCount / (successCount + failureCount) * 100).toFixed(2) || "0.00";
     const message = `📊 **Signal Outcome** 📊\n
+     Signal ID: ${signal.id}\n
 Crypto: ${signal.crypto.toUpperCase()}\n
 Signal: ${signal.signal}\n
 Outcome: ${outcome}\n
@@ -238,6 +246,7 @@ async function main() {
         activeSignal = signal;
 
         const message = `📊 **New Trading Signal** 📊\n
+         Signal ID: ${signal.id}\n
         Crypto: ${signal.crypto.toUpperCase()}\n
         Signal: ${signal.signal}\n
         Entry Price: $${signal.price.toFixed(2)}\n
