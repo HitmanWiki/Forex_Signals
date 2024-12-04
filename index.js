@@ -113,9 +113,8 @@ function generateSignal(candles, indicators) {
 
 
 
-    const longCondition = currentPrice > cprUpper && shortEma > longEma;
-    const shortCondition = currentPrice < cprLower && shortEma < longEma;
-
+    const longCondition = close > cprUpper && emaShort[emaShort.length - 1] > emaLong[emaLong.length - 1];
+    const shortCondition = close < cprLower && emaShort[emaShort.length - 1] < emaLong[emaLong.length - 1];
     if (longCondition) {
         console.log("BUY Signal Detected!");
         totalSignals++;
@@ -220,7 +219,7 @@ function resetSignals() {
     activeSignal = null;
     successCount = 0; // Reset success count
     failureCount = 0; // Reset failure count
-    bot.sendMessage(chatId, "All signals and stats have been reset.");
+    // bot.sendMessage(chatId, "All signals and stats have been reset.");
 }
 // Main Function
 async function main() {
@@ -240,6 +239,7 @@ async function main() {
         activeSignal = signal;
 
         const message = `📊 **New Trading Signal** 📊\n
+        Crypto: ${signal.crypto.toUpperCase()}\n
         Signal: ${signal.signal}\n
         Entry Price: $${signal.price.toFixed(2)}\n
         Stop Loss: $${signal.stopLoss.toFixed(2)}\n
