@@ -99,8 +99,7 @@ function calculateIndicators(candles) {
 // Generate Signal
 function generateSignal(candles, indicators) {
     const { atr, shortEma, longEma, cprUpper, cprLower } = indicators;
-    const currentPrice = candles[candles.length - 1].close;
-
+    const close = candles[candles.length - 1].close;
     console.log("=== Indicator Values ===");
     console.log(`Short EMA: ${shortEma}`);
     console.log(`Long EMA: ${longEma}`);
