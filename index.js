@@ -190,16 +190,22 @@ Take Profit: $${signal.takeProfit.toFixed(2)}`;
 
 function sendActiveSignalStatus() {
     if (!activeSignal) {
+        console.error("No active signal found:", activeSignal);
         bot.sendMessage(chatId, "No active signal at the moment.");
         return;
     }
-    const message = `📊 **Active Signal Update** 📊\n
+    if (activeSignal.price && activeSignal.stopLoss && activeSignal.takeProfit) {
+        const message = `📊 **Active Signal Update** 📊\n
     Signal: ${activeSignal.signal}\n
     Entry Price: $${activeSignal.price.toFixed(2)}\n
     Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
     Take Profit: $${activeSignal.takeProfit.toFixed(2)}\n
     Success Ratio: ${(successCount / (successCount + failureCount) * 100).toFixed(2)}%`;
-    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    } else {
+        bot.sendMessage(chatId, "Active signal data is incomplete. Please check the logs.");
+        console.error("Incomplete active signal data:", activeSignal);
+    }
 }
 function sendSignalStats() {
     const message = `📊 **Signal Performance Stats** 📊\n
