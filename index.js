@@ -90,8 +90,8 @@ function calculateIndicators(candles) {
 
     return {
         atr: atr[atr.length - 1],
-        shortEma: shortEma[shortEma.length - 1],
-        longEma: longEma[longEma.length - 1],
+        emaShort: shortEma,
+        emaLong: longEma,
         cprUpper,
         cprLower,
     };
@@ -124,7 +124,7 @@ function generateSignal(candles, indicators, pair) {
     const shortCondition = close < cprLower && emaShort[emaShort.length - 1] < emaLong[emaLong.length - 1];
 
     // Risk-reward ratio
-    const riskRewardRatio = 2; // Example value; adjust as needed
+    // const riskRewardRatio = 2; // Example value; adjust as needed
 
     if (longCondition) {
         console.log("BUY Signal Detected!");
