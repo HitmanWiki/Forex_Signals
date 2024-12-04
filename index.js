@@ -23,8 +23,8 @@ const cprLength = 15; // CPR Lookback Period
 
 // Active Signal Tracking
 let activeSignal = {}; // Object to store active signals for each crypto
-let signalStats = { success: 0, failure: 0 }; // Track success and failure rates
-
+let successCount = 0; // Tracks the number of successful trades
+let failureCount = 0; // Tracks the number of failed trades
 
 // Fetch candles from CoinGecko
 async function fetchCandles() {
@@ -152,27 +152,23 @@ async function monitorSignal() {
     if (activeSignal.signal === "BUY" && currentPrice <= activeSignal.stopLoss) {
         console.log("BUY trade stopped out.");
         sendSignalOutcome("STOP LOSS HIT", activeSignal);
-        signalStats.totalSignals++;
-        signalStats.failureCount++;
-        activeSignal = null;
+        failureCount++; // Increment failure count
+        activeSignal = null; // Reset signal
     } else if (activeSignal.signal === "BUY" && currentPrice >= activeSignal.takeProfit) {
         console.log("BUY trade hit TP.");
         sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
-        signalStats.totalSignals++;
-        signalStats.successCount++;
-        activeSignal = null;
+        successCount++; // Increment success count
+        activeSignal = null; // Reset signal
     } else if (activeSignal.signal === "SELL" && currentPrice >= activeSignal.stopLoss) {
         console.log("SELL trade stopped out.");
         sendSignalOutcome("STOP LOSS HIT", activeSignal);
-        signalStats.totalSignals++;
-        signalStats.failureCount++;
-        activeSignal = null;
+        failureCount++; // Increment failure count
+        activeSignal = null; // Reset signal
     } else if (activeSignal.signal === "SELL" && currentPrice <= activeSignal.takeProfit) {
         console.log("SELL trade hit TP.");
         sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
-        signalStats.totalSignals++;
-        signalStats.successCount++;
-        activeSignal = null;
+        successCount++; // Increment success count
+        activeSignal = null; // Reset signal
     }
 }
 
@@ -190,40 +186,31 @@ Take Profit: $${signal.takeProfit.toFixed(2)}`;
 
 function sendActiveSignalStatus() {
     if (!activeSignal) {
-        console.error("No active signal found:", activeSignal);
         bot.sendMessage(chatId, "No active signal at the moment.");
         return;
     }
-    if (activeSignal.price && activeSignal.stopLoss && activeSignal.takeProfit) {
-        const message = `📊 **Active Signal Update** 📊\n
+
+    const totalTrades = successCount + failureCount;
+    const successRatio = totalTrades > 0 ? (successCount / totalTrades * 100).toFixed(2) : "N/A";
+
+    const message = `📊 **Active Signal Update** 📊\n
     Signal: ${activeSignal.signal}\n
     Entry Price: $${activeSignal.price.toFixed(2)}\n
     Stop Loss: $${activeSignal.stopLoss.toFixed(2)}\n
     Take Profit: $${activeSignal.takeProfit.toFixed(2)}\n
-    Success Ratio: ${(successCount / (successCount + failureCount) * 100).toFixed(2)}%`;
-        bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
-    } else {
-        bot.sendMessage(chatId, "Active signal data is incomplete. Please check the logs.");
-        console.error("Incomplete active signal data:", activeSignal);
-    }
-}
-function sendSignalStats() {
-    const message = `📊 **Signal Performance Stats** 📊\n
-    Total Signals: ${signalStats.totalSignals}\n
-    Success Count: ${signalStats.successCount}\n
-    Failure Count: ${signalStats.failureCount}\n
-    Success Rate: ${signalStats.successRate()}%`;
+    Success Ratio: ${successRatio}%`;
+
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
 
-// Reset function
-function reset() {
-    console.log("Resetting active signal and signal stats...");
-    activeSignal = null;
-    signalStats = { wins: 0, losses: 0 };
-    console.log("All signals and stats have been reset.");
-}
 
+// Reset function
+function resetSignals() {
+    activeSignal = null;
+    successCount = 0; // Reset success count
+    failureCount = 0; // Reset failure count
+    bot.sendMessage(chatId, "All signals and stats have been reset.");
+}
 // Main Function
 async function main() {
     const candles = await fetchCandles();
@@ -256,7 +243,7 @@ async function main() {
 // Example of a reset trigger (Telegram Bot command)
 bot.onText(/\/reset/, (msg) => {
     // const chatId = msg.chat.id;
-    reset();
+    resetSignals();
     bot.sendMessage(chatId, "All signals and stats have been reset.");
 });
 
@@ -265,4 +252,4 @@ bot.onText(/\/reset/, (msg) => {
 setInterval(main, 180 * 1000); // Run every 3 minutes
 setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 1 minute
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
-setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
+// setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
