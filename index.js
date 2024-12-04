@@ -117,8 +117,8 @@ function generateSignal(candles, indicators) {
     const close = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
-    console.log(`Short EMA: ${emaShort[emaShort.length - 1]}`);
-    console.log(`Long EMA: ${emaLong[emaLong.length - 1]}`);
+    console.log(`Short EMA: ${emaFast[emaFast.length - 1]}`);
+    console.log(`Long EMA: ${emaSlow[emaSlow.length - 1]}`);
     console.log(`ATR: ${atr}`);
     console.log(`CPR Upper: ${cprUpper}`);
     console.log(`CPR Lower: ${cprLower}`);
