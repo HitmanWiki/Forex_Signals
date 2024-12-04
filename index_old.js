@@ -1,25 +1,34 @@
 const axios = require("axios");
-const technicalindicators = require("technicalindicators");
 const TelegramBot = require("node-telegram-bot-api");
+const technicalindicators = require("technicalindicators");
 require("dotenv").config();
 
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const chatId = process.env.TELEGRAM_CHAT_ID;
+const chatId = process.env.TELEGRAM_CHANNEL_ID; // Replace with your Telegram chat ID
 const bot = new TelegramBot(botToken, { polling: true });
 
+// / /Configuration
 const COINEX_API_URL = "https://api.coinex.com/v1/market/kline";
 const symbol = "BTCUSDT";
-const interval = "3min";
-const limit = 150;
+const interval = "3min"; // CoinEx API uses intervals like "1min", "3min", "5min"
+const limit = 150; // Number of candles to fetch
+const atrLength = 20; // ATR calculation period
+const shortEmaLength = 21; // Short EMA length
+const longEmaLength = 100; // Long EMA length
+const riskRewardRatio = 2.0; // Define the risk-reward ratio
 
-// Active signal and statistics
-let activeSignal = null;
+const cprLength = 15; // CPR Lookback Period
+
+
+// Active Signal Tracking
+let activeSignal = {}; // Object to store active signals for each crypto
+let successCount = 0; // Tracks the number of successful trades
+let failureCount = 0; // Tracks the number of failed trades
 let totalSignals = 0;
-let successCount = 0;
-let failureCount = 0;
+let signalCounter = 1;
 
-// Fetch candles
+// Fetch candles from CoinGecko
 async function fetchCandles() {
     try {
         console.log(`Fetching data for ${symbol} with interval: ${interval}`);
@@ -49,71 +58,56 @@ async function fetchCandles() {
 }
 
 
-// Calculate indicators
+// Calculate Indicators
 function calculateIndicators(candles) {
-    if (candles.length < 50) {
-        console.log("Not enough candles to calculate indicators.");
-        return null;
-    }
     const closes = candles.map((c) => c.close);
     const highs = candles.map((c) => c.high);
     const lows = candles.map((c) => c.low);
 
-    const emaFast = technicalindicators.EMA.calculate({
-        values: closes,
-        period: 20,
-    });
-    const emaSlow = technicalindicators.EMA.calculate({
-        values: closes,
-        period: 50,
-    });
-    const rsi = technicalindicators.RSI.calculate({
-        values: closes,
-        period: 14,
-    });
-    const macd = technicalindicators.MACD.calculate({
-        values: closes,
-        fastPeriod: 12,
-        slowPeriod: 26,
-        signalPeriod: 9,
-        SimpleMAOscillator: false,
-        SimpleMASignal: false,
-    });
     const atr = technicalindicators.ATR.calculate({
         high: highs,
         low: lows,
         close: closes,
-        period: 14,
+        period: atrLength,
     });
-    if (emaFast.length === 0 || emaSlow.length === 0 || macd.length === 0) {
-        console.log("EMA or MACD calculation failed.");
+
+    const shortEma = technicalindicators.EMA.calculate({
+        values: closes,
+        period: shortEmaLength,
+    });
+
+    const longEma = technicalindicators.EMA.calculate({
+        values: closes,
+        period: longEmaLength,
+    });
+
+    const pivotHigh = Math.max(...highs.slice(-cprLength));
+    const pivotLow = Math.min(...lows.slice(-cprLength));
+    const pivotClose = closes.slice(-cprLength).reduce((sum, val) => sum + val, 0) / cprLength;
+
+    const cprUpper = (pivotHigh + pivotLow) / 2;
+    const cprLower = pivotClose;
+
+    return {
+        atr: atr[atr.length - 1],
+        emaShort: shortEma,
+        emaLong: longEma,
+        cprUpper,
+        cprLower,
+    };
+}
+
+// Generate Signal
+function generateSignal(candles, indicators, cryptoSymbol) {
+    const { atr, emaShort, emaLong, cprUpper, cprLower } = indicators;
+
+    // Ensure indicators are calculated and have enough data
+    if (!emaShort || !emaLong || emaShort.length === 0 || emaLong.length === 0) {
+        console.error("EMA data is missing or insufficient.");
         return null;
     }
 
 
-    // CPR Levels
-    const highPrev = Math.max(...highs.slice(-1));
-    const lowPrev = Math.min(...lows.slice(-1));
-    const closePrev = closes[closes.length - 2];
-    const pp = (highPrev + lowPrev + closePrev) / 3;
-    const bc = (highPrev + lowPrev) / 2;
-    const tc = (pp + bc) / 2;
-
-    return {
-        emaFast: emaFast[emaFast.length - 1],
-        emaSlow: emaSlow[emaSlow.length - 1],
-        rsi: rsi[rsi.length - 1],
-        macdLine: macd[macd.length - 1]?.MACD,
-        signalLine: macd[macd.length - 1]?.signal,
-        atr: atr[atr.length - 1],
-        cprUpper: tc,
-        cprLower: bc,
-    };
-}
-
-// Generate signal
-function generateSignal(candles, indicators) {
-    const { emaFast, emaSlow, rsi, macdLine, signalLine, atr, cprUpper, cprLower } = indicators;
     const close = candles[candles.length - 1].close;
 
     console.log("=== Indicator Values ===");
@@ -125,47 +119,46 @@ function generateSignal(candles, indicators) {
     console.log("=== Price Info ===");
     console.log(`Current Price: ${close}`);
 
+    // Check for conditions
+    const longCondition = close > cprUpper && emaShort[emaShort.length - 1] > emaLong[emaLong.length - 1];
+    const shortCondition = close < cprLower && emaShort[emaShort.length - 1] < emaLong[emaLong.length - 1];
 
+    // Risk-reward ratio
+    // const riskRewardRatio = 2; // Example value; adjust as needed
 
-    const buyCondition =
-        close > cprUpper &&
-        emaFast > emaSlow &&
-        rsi > 50 &&
-        macdLine > signalLine &&
-        macdLine > 0;
-
-    const sellCondition =
-        close < cprLower &&
-        emaFast < emaSlow &&
-        rsi < 50 &&
-        macdLine < signalLine &&
-        macdLine < 0;
-
-    if (buyCondition) {
+    if (longCondition) {
+        console.log("BUY Signal Detected!");
         totalSignals++;
         return {
-            id: totalSignals,
-            crypto: symbol,
+            id: signalCounter++,
+            crypto: cryptoSymbol,
             signal: "BUY",
-            stopLoss: close - atr * 1.5,
-            takeProfit: close + atr * 2.0,
+            stopLoss: close - atr,
+            takeProfit: close + atr * riskRewardRatio,
             price: close,
+            tag: `Signal #${totalSignals}`,
         };
-    } else if (sellCondition) {
+    } else if (shortCondition) {
+        console.log("SELL Signal Detected!");
         totalSignals++;
         return {
-            id: totalSignals,
-            crypto: symbol,
+            id: signalCounter++,
+            crypto: cryptoSymbol,
             signal: "SELL",
-            stopLoss: close + atr * 1.5,
-            takeProfit: close - atr * 2.0,
+            stopLoss: close + atr,
+            takeProfit: close - atr * riskRewardRatio,
             price: close,
+            tag: `Signal #${totalSignals}`,
         };
     }
+
     console.log("No signal generated.");
     return null;
 }
 
+
+// Monitor Active Signal
+// Monitor active signal
 async function monitorSignal() {
     if (!activeSignal) return;
 
@@ -211,7 +204,11 @@ function sendSignalOutcome(outcome, signal) {
         return;
     }
 
-
+    // Ensure successCount and failureCount are defined and prevent division by zero
+    const totalSignals = (successCount || 0) + (failureCount || 0);
+    const successRatio = totalSignals > 0
+        ? ((successCount / totalSignals) * 100).toFixed(2)
+        : "0.00";
 
     const message = `📊 **Signal Outcome** 📊\n
      Signal ID: ${signal.id || "N/A"}\n
@@ -221,7 +218,7 @@ function sendSignalOutcome(outcome, signal) {
      Entry Price: $${signal.price?.toFixed(2) || "N/A"}\n
      Stop Loss: $${signal.stopLoss?.toFixed(2) || "N/A"}\n
      Take Profit: $${signal.takeProfit?.toFixed(2) || "N/A"}\n
-     Success Ratio: ${((successCount / (successCount + failureCount || 1)) * 100).toFixed(2)}%`;
+     Success Ratio: ${successRatio}%`;
 
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
@@ -236,7 +233,9 @@ function sendActiveSignalStatus() {
         }
 
         // Calculate success ratio safely
-
+        const successRatio = successCount + failureCount > 0
+            ? ((successCount / (successCount + failureCount)) * 100).toFixed(2)
+            : "0.00";
 
         // Build the message with safe checks for all properties
         const message = `📊 **Active Signal Update** 📊\n
@@ -246,7 +245,7 @@ function sendActiveSignalStatus() {
         Entry Price: $${activeSignal.price?.toFixed(2) || "N/A"}\n
         Stop Loss: $${activeSignal.stopLoss?.toFixed(2) || "N/A"}\n
         Take Profit: $${activeSignal.takeProfit?.toFixed(2) || "N/A"}\n
-       Success Ratio: ${((successCount / (successCount + failureCount || 1)) * 100).toFixed(2)}%`;
+        Success Ratio: ${successRatio}%`;
 
         // Send the message to Telegram
         bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
