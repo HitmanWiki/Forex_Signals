@@ -98,7 +98,7 @@ function calculateIndicators(candles) {
 }
 
 // Generate Signal
-function generateSignal(candles, indicators, pair) {
+function generateSignal(candles, indicators, cryptoSymbol) {
     const { atr, emaShort, emaLong, cprUpper, cprLower } = indicators;
 
     // Ensure indicators are calculated and have enough data
@@ -131,7 +131,7 @@ function generateSignal(candles, indicators, pair) {
         totalSignals++;
         return {
             id: signalCounter++,
-            crypto: pair,
+            crypto: cryptoSymbol,
             signal: "BUY",
             stopLoss: close - atr,
             takeProfit: close + atr * riskRewardRatio,
@@ -143,7 +143,7 @@ function generateSignal(candles, indicators, pair) {
         totalSignals++;
         return {
             id: signalCounter++,
-            crypto: pair,
+            crypto: cryptoSymbol,
             signal: "SELL",
             stopLoss: close + atr,
             takeProfit: close - atr * riskRewardRatio,
@@ -285,7 +285,7 @@ async function main() {
             return;
         }
 
-        const signal = generateSignal(candles, indicators);
+        const signal = generateSignal(candles, indicators, "BTCUSDT");
 
         if (signal && !activeSignal) {
             console.log("New Signal Generated:", signal);
@@ -293,7 +293,7 @@ async function main() {
 
             const message = `📊 **New Trading Signal** 📊\n
              Signal ID: ${signal.id || "N/A"}\n
-             Crypto: ${signal.crypto?.toUpperCase() || "N/A"}\n
+             Crypto: ${signal.crypto}\n
              Signal: ${signal.signal || "N/A"}\n
              Entry Price: $${signal.price?.toFixed(2) || "N/A"}\n
              Stop Loss: $${signal.stopLoss?.toFixed(2) || "N/A"}\n
