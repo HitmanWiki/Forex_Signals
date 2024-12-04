@@ -25,6 +25,7 @@ const cprLength = 15; // CPR Lookback Period
 let activeSignal = {}; // Object to store active signals for each crypto
 let successCount = 0; // Tracks the number of successful trades
 let failureCount = 0; // Tracks the number of failed trades
+let totalSignals = 0;
 
 // Fetch candles from CoinGecko
 async function fetchCandles() {
@@ -109,7 +110,6 @@ function generateSignal(candles, indicators) {
     console.log("=== Price Info ===");
     console.log(`Current Price: ${currentPrice}`);
 
-    const atrMultiplier = 1.5;
 
 
 
