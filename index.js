@@ -12,10 +12,10 @@ const bot = new TelegramBot(botToken, { polling: true });
 const COINEX_API_URL = "https://api.coinex.com/v1/market/kline";
 const symbol = "BTCUSDT";
 const interval = "3min"; // CoinEx API uses intervals like "1min", "3min", "5min"
-const limit = 100; // Number of candles to fetch
+const limit = 150; // Number of candles to fetch
 const atrLength = 20; // ATR calculation period
-const shortEmaLength = 9; // Short EMA length
-const longEmaLength = 21; // Long EMA length
+const shortEmaLength = 21; // Short EMA length
+const longEmaLength = 100; // Long EMA length
 const riskRewardRatio = 2.0; // Define the risk-reward ratio
 
 const cprLength = 15; // CPR Lookback Period
@@ -109,26 +109,34 @@ function generateSignal(candles, indicators) {
     console.log("=== Price Info ===");
     console.log(`Current Price: ${currentPrice}`);
 
+    const atrMultiplier = 1.5;
+
+
+
     const longCondition = currentPrice > cprUpper && shortEma > longEma;
     const shortCondition = currentPrice < cprLower && shortEma < longEma;
 
     if (longCondition) {
         console.log("BUY Signal Detected!");
+        totalSignals++;
         return {
             crypto: symbol,
             signal: "BUY",
             stopLoss: currentPrice - atr,
             takeProfit: currentPrice + atr * riskRewardRatio,
             price: currentPrice,
+            tag: `Signal #${totalSignals}`,
         };
     } else if (shortCondition) {
         console.log("SELL Signal Detected!");
+        totalSignals++;
         return {
             crypto: symbol,
             signal: "SELL",
             stopLoss: currentPrice + atr,
             takeProfit: currentPrice - atr * riskRewardRatio,
             price: currentPrice,
+            tag: `Signal #${totalSignals}`,
         };
     }
 
@@ -174,13 +182,17 @@ async function monitorSignal() {
 
 // Send Signal Outcome to Telegram
 function sendSignalOutcome(outcome, signal) {
+    const successRatio =
+        (successCount / (successCount + failureCount) * 100).toFixed(2) || "0.00";
     const message = `📊 **Signal Outcome** 📊\n
 Crypto: ${signal.crypto.toUpperCase()}\n
 Signal: ${signal.signal}\n
 Outcome: ${outcome}\n
 Entry Price: $${signal.price.toFixed(2)}\n
 Stop Loss: $${signal.stopLoss.toFixed(2)}\n
-Take Profit: $${signal.takeProfit.toFixed(2)}`;
+Take Profit: $${signal.takeProfit.toFixed(2)}\n
+ Success Ratio: ${successRatio}%`;
+
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 }
 
@@ -190,9 +202,8 @@ function sendActiveSignalStatus() {
         return;
     }
 
-    const totalTrades = successCount + failureCount;
-    const successRatio = totalTrades > 0 ? (successCount / totalTrades * 100).toFixed(2) : "N/A";
-
+    const successRatio =
+        (successCount / (successCount + failureCount) * 100).toFixed(2) || "0.00";
     const message = `📊 **Active Signal Update** 📊\n
     Signal: ${activeSignal.signal}\n
     Entry Price: $${activeSignal.price.toFixed(2)}\n
