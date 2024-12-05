@@ -3,6 +3,73 @@ const technicalindicators = require("technicalindicators");
 const TelegramBot = require("node-telegram-bot-api");
 require("dotenv").config();
 
+// Add SQLite3 setup
+const sqlite3 = require("sqlite3").verbose();
+const db = new sqlite3.Database("botState.db");
+
+// Initialize database schema
+db.serialize(() => {
+    db.run(`
+        CREATE TABLE IF NOT EXISTS state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    `);
+    console.log("Database initialized.");
+});
+
+// Save state to database
+function saveStateToDB(key, value) {
+    db.run(
+        "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+        [key, JSON.stringify(value)],
+        (err) => {
+            if (err) {
+                console.error("Error saving state to DB:", err.message);
+            } else {
+                console.log(`State saved to DB: ${key}`);
+            }
+        }
+    );
+}
+
+// Load state from database
+function loadStateFromDB(key, callback) {
+    db.get("SELECT value FROM state WHERE key = ?", [key], (err, row) => {
+        if (err) {
+            console.error("Error loading state from DB:", err.message);
+            callback(null);
+        } else {
+            callback(row ? JSON.parse(row.value) : null);
+        }
+    });
+}
+
+// Initialize state from database
+function initializeState() {
+    loadStateFromDB("activeSignal", (value) => {
+        activeSignal = value;
+        console.log("Active signal loaded:", activeSignal);
+    });
+
+    loadStateFromDB("successCount", (value) => {
+        successCount = value || 0;
+        console.log("Success count loaded:", successCount);
+    });
+
+    loadStateFromDB("failureCount", (value) => {
+        failureCount = value || 0;
+        console.log("Failure count loaded:", failureCount);
+    });
+
+    loadStateFromDB("totalSignals", (value) => {
+        totalSignals = value || 0;
+        console.log("Total signals loaded:", totalSignals);
+    });
+}
+
+// Call the state initializer
+initializeState();
 // Telegram Bot Setup
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHANNEL_ID;
@@ -194,7 +261,7 @@ async function monitorSignal() {
         // Update trailing stop for BUY
         if (activeSignal.atr) {
             activeSignal.trailingStop = Math.max(activeSignal.trailingStop, currentPrice - activeSignal.atr * atrMultiplier);
-            console.log("Trailing Stop Updated:", activeSignal.trailingStop);
+            console.log("Trailing Stop for BUY Updated:", activeSignal.trailingStop);
         }
         if (currentPrice <= activeSignal.trailingStop && activeSignal.signal === "BUY") {
             console.log("BUY trade stopped out with trailing stop.");
@@ -202,18 +269,23 @@ async function monitorSignal() {
             failureCount++;
             activeSignal = null;
             console.log("Active Signal Reset. Preparing for new signals...");
+            saveStateToDB("activeSignal", null);
+            saveStateToDB("failureCount", failureCount);
         } else if (currentPrice >= activeSignal.takeProfit && activeSignal.signal === "BUY") {
             console.log("BUY trade hit TP.");
             sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
             successCount++;
             activeSignal = null;
             console.log("Active Signal Reset. Preparing for new signals...");
+            saveStateToDB("activeSignal", null);
+            saveStateToDB("successCount", successCount);
+
         }
     } else if (activeSignal.signal === "SELL") {
         // Update trailing stop for SELL
         if (activeSignal.atr) {
             activeSignal.trailingStop = Math.min(activeSignal.trailingStop, currentPrice + activeSignal.atr * atrMultiplier);
-            console.log("Trailing Stop Updated:", activeSignal.trailingStop);
+            console.log("Trailing Stop for Sell Updated:", activeSignal.trailingStop);
         }
         if (currentPrice >= activeSignal.trailingStop && activeSignal.signal === "SELL") {
             console.log("SELL trade stopped out with trailing stop.");
@@ -221,12 +293,17 @@ async function monitorSignal() {
             failureCount++;
             activeSignal = null;
             console.log("Active Signal Reset. Preparing for new signals...");
+            saveStateToDB("activeSignal", null);
+            saveStateToDB("failureCount", failureCount);
         } else if (currentPrice <= activeSignal.takeProfit && activeSignal.signal === "SELL") {
             console.log("SELL trade hit TP.");
             sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
             successCount++;
             activeSignal = null;
             console.log("Active Signal Reset. Preparing for new signals...");
+            saveStateToDB("activeSignal", null);
+            saveStateToDB("successCount", successCount);
+
         }
     }
 }
@@ -378,7 +455,24 @@ bot.onText(/\/reset/, (msg) => {
     resetSignals();
     bot.sendMessage(chatId, "All signals and stats have been reset.");
 });
+// Handle process termination signals
+process.on("SIGINT", () => {
+    saveStateToDB("activeSignal", activeSignal);
+    saveStateToDB("successCount", successCount);
+    saveStateToDB("failureCount", failureCount);
+    saveStateToDB("totalSignals", totalSignals);
+    console.log("Bot state saved on shutdown.");
+    process.exit();
+});
 
+process.on("SIGTERM", () => {
+    saveStateToDB("activeSignal", activeSignal);
+    saveStateToDB("successCount", successCount);
+    saveStateToDB("failureCount", failureCount);
+    saveStateToDB("totalSignals", totalSignals);
+    console.log("Bot state saved on shutdown.");
+    process.exit();
+});
 // Schedule tasks
 // Schedule tasks
 setInterval(main, 180 * 1000); // Run every 3 minutes
