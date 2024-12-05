@@ -8,6 +8,16 @@ const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHANNEL_ID;
 const bot = new TelegramBot(botToken, { polling: true });
 
+// Unhandled Promise Rejection Handler
+process.on("unhandledRejection", (reason, promise) => {
+    console.error("Unhandled Rejection:", reason);
+    bot.sendMessage(
+        chatId,
+        `⚠️ Unhandled Rejection: ${reason.message || reason}. Please check logs.`
+    );
+});
+
+
 const COINEX_API_URL = "https://api.coinex.com/v1/market/kline";
 const symbol = "BTCUSDT";
 const interval = "3min";
@@ -182,33 +192,41 @@ async function monitorSignal() {
 
     if (activeSignal.signal === "BUY") {
         // Update trailing stop for BUY
-        activeSignal.trailingStop = Math.max(activeSignal.trailingStop, currentPrice - activeSignal.atr * 1.5);
-
-        if (currentPrice <= activeSignal.trailingStop) {
+        if (activeSignal.atr) {
+            activeSignal.trailingStop = Math.max(activeSignal.trailingStop, currentPrice - activeSignal.atr * atrMultiplier);
+            console.log("Trailing Stop Updated:", activeSignal.trailingStop);
+        }
+        if (currentPrice <= activeSignal.trailingStop && activeSignal.signal === "BUY") {
             console.log("BUY trade stopped out with trailing stop.");
             sendSignalOutcome("TRAILING STOP HIT", activeSignal);
             failureCount++;
             activeSignal = null;
-        } else if (currentPrice >= activeSignal.takeProfit) {
+            console.log("Active Signal Reset. Preparing for new signals...");
+        } else if (currentPrice >= activeSignal.takeProfit && activeSignal.signal === "BUY") {
             console.log("BUY trade hit TP.");
             sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
             successCount++;
             activeSignal = null;
+            console.log("Active Signal Reset. Preparing for new signals...");
         }
     } else if (activeSignal.signal === "SELL") {
         // Update trailing stop for SELL
-        activeSignal.trailingStop = Math.min(activeSignal.trailingStop, currentPrice + activeSignal.atr * 1.5);
-
-        if (currentPrice >= activeSignal.trailingStop) {
+        if (activeSignal.atr) {
+            activeSignal.trailingStop = Math.min(activeSignal.trailingStop, currentPrice + activeSignal.atr * atrMultiplier);
+            console.log("Trailing Stop Updated:", activeSignal.trailingStop);
+        }
+        if (currentPrice >= activeSignal.trailingStop && activeSignal.signal === "SELL") {
             console.log("SELL trade stopped out with trailing stop.");
             sendSignalOutcome("TRAILING STOP HIT", activeSignal);
             failureCount++;
             activeSignal = null;
-        } else if (currentPrice <= activeSignal.takeProfit) {
+            console.log("Active Signal Reset. Preparing for new signals...");
+        } else if (currentPrice <= activeSignal.takeProfit && activeSignal.signal === "SELL") {
             console.log("SELL trade hit TP.");
             sendSignalOutcome("TAKE PROFIT HIT", activeSignal);
             successCount++;
             activeSignal = null;
+            console.log("Active Signal Reset. Preparing for new signals...");
         }
     }
 }
@@ -327,7 +345,8 @@ async function main() {
 
         if (signal && !activeSignal) {
             console.log("New Signal Generated:", signal);
-            activeSignal = signal;
+            activeSignal = { ...signal }; // Ensure a fresh copy
+            console.log("Active Signal Reset. Preparing for new signals...");
 
             const message = `📊 **New Trading Signal** 📊\n
              Signal ID: ${signal.id || "N/A"}\n
@@ -365,4 +384,7 @@ bot.onText(/\/reset/, (msg) => {
 setInterval(main, 180 * 1000); // Run every 3 minutes
 setInterval(monitorSignal, 60 * 1000); // Monitor active signal every 1 minute
 setInterval(sendActiveSignalStatus, 60 * 60 * 1000); // Send active signal update every hour
-setInterval(sendSignalStats, 60 * 60 * 1000); // Send signal stats every hour
+setInterval(() => {
+    sendSignalStats();
+    console.log(`Stats Sent: Success: ${successCount}, Failures: ${failureCount}`);
+}, 60 * 60 * 1000);
