@@ -378,6 +378,7 @@ function sendActiveSignalStatus() {
         Entry Price: $${activeSignal.price?.toFixed(2) || "N/A"}\n
         Stop Loss: $${activeSignal.stopLoss?.toFixed(2) || "N/A"}\n
         Take Profit: $${activeSignal.takeProfit?.toFixed(2) || "N/A"}\n
+         Trailing Stop: $${activeSignal?.trailingStop?.toFixed(2) || "N/A"}\n
        Success Ratio: ${((successCount / (successCount + failureCount || 1)) * 100).toFixed(2)}%`;
 
         // Send the message to Telegram
