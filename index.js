@@ -9,31 +9,37 @@ const db = new sqlite3.Database("botState.db");
 
 // Initialize database schema
 db.serialize(() => {
+    // Existing state table
     db.run(`
         CREATE TABLE IF NOT EXISTS state (
             key TEXT PRIMARY KEY,
             value TEXT
         )
     `);
-    console.log("Database initialized.");
+
+    // New signals table
+    db.run(`
+        CREATE TABLE IF NOT EXISTS signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            crypto TEXT,
+            signal TEXT,
+            entryPrice REAL,
+            stopLoss REAL,
+            takeProfit REAL,
+            trailingStop REAL NOT NULL,
+    trailingDistance REAL NOT NULL,
+            outcome TEXT,
+            roi REAL,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    console.log("Database initialized with state and signals tables.");
 });
 
-// Save state to database
-function saveStateToDB(key, value) {
-    db.run(
-        "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
-        [key, JSON.stringify(value)],
-        (err) => {
-            if (err) {
-                console.error("Error saving state to DB:", err.message);
-            } else {
-                console.log(`State saved to DB: ${key}`);
-            }
-        }
-    );
-}
 
-// Load state from database
+
+
+
 function loadStateFromDB(key, callback) {
     db.get("SELECT value FROM state WHERE key = ?", [key], (err, row) => {
         if (err) {
@@ -44,9 +50,34 @@ function loadStateFromDB(key, callback) {
         }
     });
 }
+function fetchUnresolvedSignals(callback) {
+    db.all(
+        `SELECT * FROM signals WHERE outcome IS NULL`,
+        [],
+        (err, rows) => {
+            if (err) {
+                console.error("Error fetching unresolved signals:", err.message);
+                callback([]);
+            } else {
+                callback(rows);
+            }
+        }
+    );
+}
+
+
 
 // Initialize state from database
 function initializeState() {
+    fetchUnresolvedSignals((signals) => {
+        if (signals.length > 0) {
+            activeSignal = signals[0]; // Assuming one active signal at a time
+            console.log("Unresolved signal loaded:", activeSignal);
+        } else {
+            console.log("No unresolved signals found.");
+        }
+    });
+
     loadStateFromDB("activeSignal", (value) => {
         activeSignal = value;
         console.log("Active signal loaded:", activeSignal);
@@ -190,7 +221,7 @@ function calculateIndicators(candles) {
 }
 
 // Generate signal
-function generateSignal(candles, indicators) {
+function generateSignal(candles, indicators, symbol) {
     const { emaFast, emaSlow, rsi, macdLine, signalLine, atr, cprUpper, cprLower } = indicators;
     const close = candles[candles.length - 1].close;
 
@@ -202,8 +233,6 @@ function generateSignal(candles, indicators) {
     console.log(`CPR Lower: ${cprLower}`);
     console.log("=== Price Info ===");
     console.log(`Current Price: ${close}`);
-
-
 
     const buyCondition =
         close > cprUpper &&
@@ -219,33 +248,58 @@ function generateSignal(candles, indicators) {
         macdLine < signalLine &&
         macdLine < 0;
 
-    if (buyCondition) {
+    if (buyCondition || sellCondition) {
         totalSignals++;
-        return {
+
+        const signalType = buyCondition ? "BUY" : "SELL";
+        const riskDistance = atr * atrMultiplier; // Use ATR for risk calculation
+        const trailingDistance = atr * 1.5; // Trailing stop distance
+
+        const stopLoss = buyCondition
+            ? close - riskDistance
+            : close + riskDistance;
+
+        const takeProfit = buyCondition
+            ? close + 2 * riskDistance
+            : close - 2 * riskDistance;
+
+        const signal = {
             id: totalSignals,
             crypto: symbol,
-            signal: "BUY",
-            stopLoss: close - atr * atrMultiplier,
-            takeProfit: close + atr * 2.0,
-            trailingStop: close - atr * atrMultiplier, // Initial trailing stop
+            signal: signalType,
+            stopLoss: stopLoss,
+            takeProfit: takeProfit,
+            trailingStop: stopLoss, // Initialize trailing stop at SL
+            trailingDistance: trailingDistance, // Distance for trailing stop adjustment
             price: close,
         };
-    } else if (sellCondition) {
-        totalSignals++;
-        return {
-            id: totalSignals,
-            crypto: symbol,
-            signal: "SELL",
-            stopLoss: close + atr * atrMultiplier,
-            takeProfit: close - atr * 2.0,
-            trailingStop: close + atr * atrMultiplier, // Initial trailing stop
-            price: close,
-        };
+
+        console.log(`Signal generated:`, signal);
+
+        // Save the signal to the database
+        db.run(
+            `INSERT INTO signals (crypto, signal, entryPrice, stopLoss, takeProfit, trailingDistance)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                signal.crypto,
+                signal.signal,
+                signal.price,
+                signal.stopLoss,
+                signal.takeProfit,
+                signal.trailingDistance,
+            ],
+            (err) => {
+                if (err) console.error("Error saving new signal to DB:", err.message);
+                else console.log(`New signal saved for ${signal.crypto}.`);
+            }
+        );
+
+        return signal;
     }
+
     console.log("No signal generated.");
     return null;
 }
-
 async function monitorSignal() {
     if (!activeSignal) return;
 
