@@ -260,12 +260,12 @@ async function fetchCandles(symbol) {
 async function fetchLatestPrice(symbol) {
     try {
         console.log(`Fetching latest price for ${symbol}`);
-        const response = await axios.get(TWELVE_DATA_API_URL, {
+        const response = await axios.get(COINEX_API_URL, {
             params: {
                 symbol: symbol,
                 interval: "1min", // Use the smallest interval for the latest price
                 outputsize: 1,    // Fetch only the latest candle
-                apikey: TWELVE_DATA_API_KEY,
+                apikey: COINEX_API_URL,
             },
         });
 
