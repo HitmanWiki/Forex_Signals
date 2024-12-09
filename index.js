@@ -257,6 +257,31 @@ async function fetchCandles(symbol) {
         return [];
     }
 }
+async function fetchLatestPrice(symbol) {
+    try {
+        console.log(`Fetching latest price for ${symbol}`);
+        const response = await axios.get(TWELVE_DATA_API_URL, {
+            params: {
+                symbol: symbol,
+                interval: "1min", // Use the smallest interval for the latest price
+                outputsize: 1,    // Fetch only the latest candle
+                apikey: TWELVE_DATA_API_KEY,
+            },
+        });
+
+        if (response.data && response.data.values && response.data.values.length > 0) {
+            const latestPrice = parseFloat(response.data.values[0].close);
+            console.log(`Latest price for ${symbol}: $${latestPrice}`);
+            return latestPrice;
+        } else {
+            console.error(`Unexpected response format for latest price of ${symbol}:`, response.data);
+            return null;
+        }
+    } catch (error) {
+        console.error(`Error fetching latest price for ${symbol}:`, error.message);
+        return null;
+    }
+}
 
 
 
