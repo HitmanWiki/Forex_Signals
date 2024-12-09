@@ -71,7 +71,8 @@ function initializeDatabase() {
             outcome TEXT,
             createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
             lastTSLUpdate TEXT,
-            customId TEXT UNIQUE
+            customId TEXT UNIQUE,
+            closedAt TEXT
         )
     `);
 
@@ -369,12 +370,14 @@ function closeSignal(symbol, signal, currentPrice, reason) {
     signal.exitPrice = currentPrice;
     signal.closedAt = new Date().toISOString();
     db.run(
-        `UPDATE signals SET outcome = ?, roi = ?, exitPrice = ?, closedAt = ? WHERE uniqueId = ?`,
-        [signal.outcome, roi, signal.exitPrice, signal.closedAt, signal.uniqueId],
+        `UPDATE signals SET outcome = ?, roi = ?, closedAt = ? WHERE crypto = ? AND entryPrice = ?`,
+        [signal.outcome, roi, new Date().toISOString(), signal.crypto, signal.entryPrice],
         (err) => {
-            if (err) console.error("Error updating signal in DB:", err.message);
+            if (err) console.error(`Error updating signal in DB for ${signal.crypto}:`, err.message);
+            else console.log(`Signal closed and updated in DB for ${signal.crypto}.`);
         }
     );
+
 
     delete activeSignals[symbol];
 
